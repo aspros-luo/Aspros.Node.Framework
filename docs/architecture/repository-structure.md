@@ -1,154 +1,117 @@
 # Repository Structure / 仓库结构
 
-**Status / 状态：Proposed baseline / 初始提案**
+**Status / 状态：Domain workspace scaffold established; outer packages planned / Domain 工作区骨架已建立；外层模块仍在规划中**
 
-This document describes the intended architecture. It does not claim that all packages already exist.
+## 1. Repository Shape / 仓库整体结构
 
-本文描述计划采用的架构，不代表所有 package 已经创建。
+The repository uses a pnpm workspace. Domain is the first package to be implemented; other packages are added only after their boundaries are designed.
 
-## 1. Repository Shape / 仓库整体形态
-
-The repository is planned as a pnpm workspace monorepo. Related packages can be versioned and tested together while keeping package-level dependency boundaries.
-
-仓库计划采用 pnpm workspace 多包结构。相关模块可以统一版本管理和测试，同时保持 package 级别的依赖边界。
+仓库采用 pnpm workspace。Domain 是首个实现的 package；其他 package 在职责边界明确后再逐步建立。
 
 ```text
 Aspros.Node.Framework/
-├── README.md
-├── package.json                  # Root scripts and workspace metadata / 根脚本与工作区元数据
-├── pnpm-workspace.yaml           # Workspace declaration / 工作区声明
-├── tsconfig.base.json            # Shared TypeScript defaults / TypeScript 共享配置
-├── .gitignore
-├── docs/
-│   ├── architecture/
-│   │   ├── repository-structure.md
-│   │   ├── domain-design.md
-│   │   └── decisions/
-│   │       └── ADR-0001-domain-runtime-portability.md
-│   ├── guides/
-│   └── reference/
-├── packages/
-│   ├── domain/
-│   ├── application/
-│   ├── infrastructure/
-│   └── runtime-node/
-├── examples/
-│   ├── minimal-domain/
-│   └── service-api/
-└── tools/
-```
-
-This is a target structure, not a mandate to create empty packages now. Add a package only when it has a clear responsibility, public contract, and testable value.
-
-这是目标结构，不要求现在立即创建所有空 package。只有当模块具有清晰职责、公共契约和可测试价值时，才创建它。
-
-## 2. Package Responsibilities / 模块职责
-
-### `packages/domain`
-
-Contains domain-modeling building blocks and domain-facing contracts: Entity, Value Object, Aggregate Root, Domain Event, Domain Error, Repository contract, Domain Service, and optional Specification.
-
-包含领域建模基础构件和面向领域的契约：Entity、Value Object、Aggregate Root、Domain Event、Domain Error、Repository 契约、Domain Service，以及可选的 Specification。
-
-**Must not depend on / 不得依赖：** Node.js built-in modules, HTTP frameworks, databases, ORM packages, message brokers, DI containers, or other framework packages.
-
-### `packages/application`
-
-Owns application use cases and coordinates domain objects with ports. It defines use-case transaction boundaries and coordinates commit/rollback and post-commit work.
-
-负责应用用例，并通过端口协调领域对象。它定义用例级事务边界，并协调提交、回滚和提交后的工作。
-
-Application may depend on Domain; Domain must never depend on Application.
-
-Application 可以依赖 Domain；Domain 绝不能反向依赖 Application。
-
-### `packages/infrastructure`
-
-Implements technical adapters such as database persistence, ORM integration, message transport, cache, and external services.
-
-实现数据库持久化、ORM 集成、消息传输、缓存和外部服务等技术适配器。
-
-Infrastructure implements contracts required by inner layers; it does not own domain rules.
-
-Infrastructure 实现内层所需的契约，但不拥有领域规则。
-
-### `packages/runtime-node`
-
-Contains integrations that genuinely require Node.js APIs, such as Node-specific filesystem, process, crypto, or runtime lifecycle adapters.
-
-包含确实需要 Node.js API 的集成，例如 Node 专属文件系统、进程、加密或运行时生命周期适配器。
-
-Node-specific dependencies must not leak into the portable Domain package.
-
-Node 专属依赖不得渗透到可移植的 Domain package 中。
-
-## 3. Dependency Direction / 依赖方向
-
-```text
-runtime-node ─────┐
-infrastructure ──┼──> application ───> domain
-examples ─────────┘
-```
-
-This is a conceptual direction, not a final package graph. Concrete adapters implement abstractions owned by inner layers.
-
-这是概念性依赖方向，不是最终 package 依赖图。具体适配器实现由内层拥有的抽象。
-
-Rules / 规则：
-
-1. Domain is the innermost package and has no framework-package dependencies. / Domain 位于最内层，不依赖其他框架 package。
-2. Application depends on Domain abstractions, not concrete database or transport implementations. / Application 依赖 Domain 抽象，不依赖具体数据库或传输实现。
-3. Infrastructure implements ports required by inner layers. / Infrastructure 实现内层需要的端口。
-4. Runtime-specific code stays in runtime-specific packages. / Runtime 专属代码隔离在对应模块。
-5. Examples consume supported public APIs and must not become hidden implementation dependencies. / 示例使用受支持的公共 API，不得成为隐藏的实现依赖。
-
-## 4. Workspace and Tooling / 工作区与工具选型
-
-| Concern / 事项 | Direction / 当前方向 | Status / 状态 |
-|---|---|---|
-| Package manager / 包管理器 | pnpm workspaces | Proposed / 提案 |
-| Language / 语言 | TypeScript | Agreed / 已确定 |
-| Type checking / 类型检查 | TypeScript strict mode | Baseline / 基线 |
-| Module format / 模块格式 | Review ESM-first and compatibility needs | Open / 待定 |
-| Test runner / 测试运行器 | Select before implementation | Open / 待定 |
-| Build tool / 构建工具 | Keep minimal; decide based on publishing needs | Open / 待定 |
-| Node.js support range / Node.js 支持范围 | Define before runtime integration | Open / 待定 |
-| License / 许可证 | Add only after explicit confirmation | Open / 待定 |
-
-Do not add dependencies merely because they are popular. Each dependency needs an identified responsibility and compatibility rationale.
-
-不要仅因依赖流行就引入它。每项依赖都必须有明确职责和兼容性依据。
-
-## 5. Package Layout Convention / Package 内部约定
-
-A package should remain small and predictable. A possible layout is:
-
-每个 package 应保持精简且结构可预测。可采用：
-
-```text
-packages/<package-name>/
-├── src/
-│   ├── index.ts                 # Public exports / 公共导出
-│   └── ...
-├── tests/
 ├── package.json
-├── tsconfig.json
-└── README.md                    # Package usage and boundaries / 模块用法与边界
+├── pnpm-workspace.yaml
+├── tsconfig.base.json
+├── README.md
+├── docs/architecture/
+└── packages/
+    ├── domain/
+    │   ├── src/
+    │   │   ├── entities/
+    │   │   ├── repositories/
+    │   │   ├── uow/
+    │   │   ├── events/
+    │   │   ├── errors/
+    │   │   ├── services/
+    │   │   ├── specifications/
+    │   │   └── index.ts
+    │   ├── examples/simple/
+    │   ├── tests/
+    │   ├── package.json
+    │   ├── tsconfig.json
+    │   ├── tsconfig.all.json
+    │   └── README.md
+    ├── application/       # planned / 计划中
+    ├── infrastructure/    # planned / 计划中
+    └── runtime-node/      # planned / 计划中
 ```
 
-Do not create deep folder hierarchies before the code needs them. Public exports must be intentional; internal files do not automatically become public API.
+## 2. Domain Directory Responsibilities / Domain 目录职责
 
-不要在代码尚不需要时提前创建过深目录。公共导出必须经过明确选择，内部文件不会自动成为公共 API。
+- `entities/`: Entity identity, aggregate-root role and optional base classes. / 实体身份、聚合根角色和可选基类。
+- `repositories/`: persistence-neutral aggregate repository contracts. / 与持久化技术无关的聚合仓储契约。
+- `uow/`: Unit of Work contract only; no transaction implementation. / 仅定义工作单元契约，不实现事务。
+- `events/`: domain event contracts and metadata. / 领域事件契约与元数据。
+- `errors/`: typed domain errors and stable codes. / 类型化领域错误与稳定代码。
+- `services/`: domain service marker/contracts. / 领域服务标记与契约。
+- `specifications/`: reusable in-memory domain predicates. / 可复用的内存领域判断条件。
+- `examples/simple/`: a small Trade / Order / Refund usage example. / Trade / Order / Refund 小型用法示例。
+- `tests/`: package behavior tests, including example behavior. / package 行为测试，包括示例行为。
+
+The requested `entities`, `repositories`, and `uow` folders are first-class parts of Domain. Examples are kept separate from the public source entry point and are not exported as framework APIs.
+
+用户指定的 `entities`、`repositories` 和 `uow` 是 Domain 的正式目录。示例与公共源码入口分离，不作为框架 API 导出。
+
+## 3. Layer Responsibilities / 分层职责
+
+### Domain
+
+Owns domain building blocks and contracts. It has no dependency on other framework packages, databases, HTTP frameworks, message brokers, or Node.js APIs.
+
+负责领域构件和契约。不依赖其他框架 package、数据库、HTTP 框架、消息代理或 Node.js API。
+
+### Application (planned) / Application（计划中）
+
+Owns use cases, orchestration, authorization flow, and application-level transaction coordination. It depends on Domain contracts.
+
+负责用例、编排、授权流程和应用级事务协调，依赖 Domain 契约。
+
+### Infrastructure (planned) / Infrastructure（计划中）
+
+Implements persistence, external service, messaging and technical adapters required by inner layers. It must not own domain rules.
+
+实现内层需要的持久化、外部服务、消息和技术适配器，不拥有领域规则。
+
+### Runtime Node (planned) / Node Runtime（计划中）
+
+Contains capabilities that genuinely require Node.js APIs.
+
+包含确实需要 Node.js API 的能力。
+
+## 4. Dependency Direction / 依赖方向
+
+```text
+Application ───────> Domain <────── Infrastructure adapters
+                          ^
+                          |
+                     Runtime Node
+```
+
+This is a responsibility sketch, not a complete import graph. An adapter depends on the port it implements; Domain never imports an adapter.
+
+这是职责示意图，不是完整 import 图。适配器依赖其实现的端口；Domain 永远不导入适配器。
+
+## 5. Tooling Baseline / 工具基线
+
+| Concern / 事项 | Current choice / 当前选择 |
+|---|---|
+| Workspace / 工作区 | pnpm |
+| Language / 语言 | TypeScript |
+| Module format / 模块格式 | ESM |
+| Type checking / 类型检查 | strict TypeScript |
+| Tests / 测试 | Vitest |
+| Domain target / Domain 编译目标 | ES2022 |
+| Workspace Node baseline / 工作区 Node 基线 | Node.js 22+ |
+
+The workspace baseline is a development/tooling baseline, not a claim that Domain uses Node.js APIs. Revisit it when the package support policy is finalized.
+
+工作区基线用于开发和工具链，不代表 Domain 使用 Node.js API。正式确定 package 支持策略时再复核。
 
 ## 6. Delivery Order / 推进顺序
 
-1. Finalize Domain boundaries and design. / 完成 Domain 边界与设计定稿。
-2. Implement and validate Domain. / 实现并验证 Domain。
-3. Design Application around real use cases and transaction orchestration. / 围绕真实用例和事务编排设计 Application。
-4. Design Infrastructure adapters against stable inner-layer contracts. / 基于稳定的内层契约设计 Infrastructure 适配器。
-5. Add Node.js runtime integrations where required. / 在确有需要时增加 Node.js 运行时集成。
-6. Add end-to-end examples and integration tests. / 建立端到端示例和集成测试。
-
-The order may change when evidence invalidates an assumption. Architecture is a constraint system, not a fixed ceremony.
-
-如果验证证据推翻某项假设，可以调整顺序。架构是约束体系，而不是僵化仪式。
+1. Implement and validate Domain. / 实现并验证 Domain。
+2. Design Application around real use cases and transaction coordination. / 围绕真实用例和事务协调设计 Application。
+3. Implement Infrastructure adapters against stable contracts. / 基于稳定契约实现 Infrastructure 适配器。
+4. Add Node.js runtime integrations. / 增加 Node.js Runtime 集成。
+5. Build a formal end-to-end demo and integration tests. / 建立正式端到端 Demo 和集成测试。

@@ -1,0 +1,47 @@
+# Dependencies / 依赖
+node_modules/
+.pnpm-store/
+
+# Build outputs / 构建产物
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Tool caches / 工具缓存
+.nyc_output/
+.vitest/
+.eslintcache/
+.turbo/
+.cache/
+
+# Environment and secrets / 环境配置与密钥
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Logs / 日志
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+
+# Local data / 本地数据
+*.sqlite
+*.sqlite3
+*.db
+data/
+.tmp/
+temp/
+
+# Editors and operating systems / 编辑器与操作系统
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db

@@ -1,12 +1,12 @@
 # Repository Structure / 仓库结构
 
-**Status / 状态：Domain workspace scaffold established; outer packages planned / Domain 工作区骨架已建立；外层模块仍在规划中**
+**Status / 状态：Domain workspace scaffold established; Infrastructure is the next design and implementation phase / Domain 工作区骨架已建立；下一阶段为 Infrastructure 设计与实现**
 
 ## 1. Repository Shape / 仓库整体结构
 
-The repository uses a pnpm workspace. Domain is the first package; other packages are added only after their boundaries are designed.
+The repository uses a pnpm workspace. Domain is the first package. Infrastructure is the next package to design and implement; Application follows after the required infrastructure capabilities have working implementations and verification evidence.
 
-仓库采用 pnpm workspace。Domain 是首个 package；其他模块在职责边界明确后再逐步建立。
+仓库采用 pnpm workspace。Domain 是首个 package。下一步设计并实现 Infrastructure；待所需基础设施能力具备可运行实现和验证证据后，再建设 Application。
 
 ```text
 Aspros.Node.Framework/
@@ -28,9 +28,9 @@ Aspros.Node.Framework/
     │   ├── examples/simple/
     │   ├── tests/
     │   └── package.json, tsconfig*.json, README.md
-    ├── application/       # planned / 计划中
-    ├── infrastructure/    # planned / 计划中
-    └── runtime-node/      # planned / 计划中
+    ├── infrastructure/    # next / 下一阶段
+    ├── application/        # after infrastructure / Infrastructure 完成后
+    └── runtime-node/       # platform-specific runtime integration / 平台专属运行时集成
 ```
 
 ## 2. Domain Directory Responsibilities / Domain 目录职责
@@ -52,52 +52,86 @@ The requested `entities`, `repositories`, and `uow` folders are first-class part
 
 ### Domain
 
-Owns domain building blocks and contracts. It has no dependency on other framework packages, databases, HTTP frameworks, message brokers, or Node.js APIs.
+Owns domain building blocks and domain-facing contracts. It has no dependency on other framework packages, databases, HTTP frameworks, message brokers, or Node.js APIs.
 
-负责领域构件和契约。不依赖其他框架 package、数据库、HTTP 框架、消息代理或 Node.js API。
+负责领域构件和面向领域的契约。不依赖其他框架 package、数据库、HTTP 框架、消息代理或 Node.js API。
 
-### Application (planned) / Application（计划中）
+### Infrastructure (next) / Infrastructure（下一阶段）
 
-Owns use cases, orchestration, authorization flow, and application-level transaction coordination. It depends on Domain contracts.
+Implements technical capabilities and adapters without owning domain rules. The initial capability map should be evaluated against the reference .NET framework and Node.js ecosystem, including:
 
-负责用例、编排、授权流程和应用级事务协调，依赖 Domain 契约。
+负责实现技术能力和适配器，不拥有领域规则。首轮能力范围应参考原 .NET 框架并结合 Node.js 生态评估，包括：
 
-### Infrastructure (planned) / Infrastructure（计划中）
+- **Persistence / 持久化：** database connections and pools, relational database adapters, Repository and Unit of Work implementations, transactions, migrations, and optional ORM/query-builder integrations. / 数据库连接与连接池、关系型数据库适配、Repository 与 Unit of Work 实现、事务、迁移，以及可选 ORM/Query Builder 集成。
+- **Cache / 缓存：** cache contracts/adapters, Redis integration, distributed locking and related primitives where justified. / 缓存契约与适配器、Redis 集成，以及确有需要时的分布式锁等基础能力。
+- **Messaging / 消息：** broker integration, producer/consumer lifecycle, acknowledgement, retries, dead-letter handling, idempotency support, and reliable delivery foundations such as Outbox/Inbox. / 消息代理集成、生产者与消费者生命周期、确认、重试、死信处理、幂等辅助，以及 Outbox/Inbox 等可靠投递基础。
+- **Analytics / 分析存储：** ClickHouse integration, batch ingestion and read-oriented analytical access. / ClickHouse 集成、批量写入和面向读取的分析访问。
+- **Service communication / 服务通信：** HTTP client/server integration, RPC/gRPC where selected, service discovery and resilience policies. / HTTP 客户端与服务端集成、选定的 RPC/gRPC、服务发现和弹性策略。
+- **Operations / 运维能力：** structured logging, metrics, tracing, health checks, configuration and framework registration/bootstrap foundations. / 结构化日志、指标、链路追踪、健康检查、配置和框架注册/启动基础能力。
 
-Implements persistence, external service, messaging and technical adapters required by inner layers. It must not own domain rules.
+These are capability areas to design and validate, not claims that every adapter or provider has already been selected or implemented. Specific providers, package boundaries and dependencies must be decided before coding each capability.
 
-实现内层需要的持久化、外部服务、消息和技术适配器，不拥有领域规则。
+以上是需要设计和验证的能力范围，并不表示所有适配器或供应商已经选定或实现。每项能力编码前，都必须先确定具体技术选型、package 边界和依赖关系。
 
-Infrastructure's public Abstractions must be accompanied by focused examples showing both the contract and a realistic adapter usage. The same example-first rule applies to abstractions introduced in later packages.
+Infrastructure's public abstractions must be accompanied by focused examples showing both the contract and realistic adapter usage. The same example-first rule applies to abstractions introduced in later packages.
 
 Infrastructure 的公共 Abstractions 必须配套精简示例，同时展示契约和真实适配器的使用方式。后续 package 新增的抽象也遵循相同的示例优先原则。
 
-### Runtime Node (planned) / Node Runtime（计划中）
+### Application (after Infrastructure) / Application（Infrastructure 完成后）
 
-Contains capabilities that genuinely require Node.js APIs. / 包含确实需要 Node.js API 的能力。
+Owns use cases, orchestration, authorization flow and application-level coordination. It consumes Domain contracts and the infrastructure capabilities selected for the application, while remaining independent of concrete provider implementations.
 
-## 4. Dependency Direction / 依赖方向
+负责用例、编排、授权流程和应用级协调。它使用 Domain 契约及应用所需的基础设施能力，但不依赖具体供应商实现。
+
+Application should be designed after the required Infrastructure capabilities have been implemented and validated. Its ports must be owned by the layer that needs them; implementation order must not cause Application to depend on concrete Infrastructure packages.
+
+应在所需 Infrastructure 能力实现并验证后再设计 Application。端口契约应由真正需要它的层负责；不能因为先建设 Infrastructure，就让 Application 依赖具体 Infrastructure package。
+
+### Runtime Node / Node Runtime
+
+Contains capabilities that genuinely require Node.js APIs. Keep runtime-specific concerns out of Domain. Decide which capabilities belong here versus Infrastructure when the relevant adapter is designed.
+
+包含确实需要 Node.js API 的能力。Node.js 专属事项不得进入 Domain。设计具体适配器时，再明确相关能力属于 Runtime Node 还是 Infrastructure。
+
+## 4. Dependency Direction vs. Delivery Order / 依赖方向与建设顺序
+
+The implementation sequence is:
+
+```text
+Domain → Infrastructure → Application → Microservice Demo
+```
+
+This sequence describes when we design and build each layer. It does **not** mean that runtime or compile-time dependencies point outward. The intended dependency rule remains:
 
 ```text
 Application ───────> Domain <────── Infrastructure adapters
-                          ^
-                          |
-                     Runtime Node
+
+Service Host / Bootstrap ───────> Application
+Service Host / Bootstrap ───────> Infrastructure
 ```
 
-This is a responsibility sketch, not a complete import graph. An adapter depends on the port it implements; Domain never imports an adapter.
+Domain defines its repository and Unit of Work contracts; Infrastructure implements them. For other technical capabilities, the owning port must be decided deliberately. Infrastructure must not introduce provider-specific dependencies into Domain, and Application must not be coupled to concrete database, Redis or broker SDKs.
 
-这是职责示意图，不是完整 import 图。适配器依赖其实现的端口；Domain 永远不导入适配器。
+该顺序描述各层的设计和建设时机，**不**代表运行时或编译时依赖向外指向。预期依赖规则保持不变：
+
+```text
+Application ───────> Domain <────── Infrastructure 适配器
+
+Service Host / Bootstrap ───────> Application
+Service Host / Bootstrap ───────> Infrastructure
+```
+
+Domain 定义 Repository 和 Unit of Work 契约，Infrastructure 负责实现。其他技术能力的端口归属必须经过明确设计。Infrastructure 不得把供应商专属依赖引入 Domain；Application 也不得耦合具体数据库、Redis 或消息代理 SDK。
 
 ## 5. Example Policy / 示例规范
 
-Every package should include small examples for important public abstractions, not only API declarations. Examples must identify what is a contract, what is an implementation, and what is merely illustrative. Tests verify the behavior; examples explain how consumers compose the pieces.
+Every package should include small examples for important public abstractions, not only API declarations. Examples must identify what is a contract, what is an implementation, and what is merely illustrative. Tests verify behavior; examples explain how consumers compose the pieces.
 
 每个 package 的重要公共抽象都应配套小型示例，而不只是声明 API。示例必须区分契约、具体实现和仅供说明的内容。测试负责验证行为；示例负责说明使用者如何组合这些构件。
 
-These focused examples do not replace the later formal end-to-end demo under the repository-level `examples/` directory.
+These focused examples do not replace the later formal end-to-end microservice demo under the repository-level `examples/` directory.
 
-这些分层小示例不能替代后续仓库根目录 `examples/` 下的正式端到端 Demo。
+这些分层小示例不能替代后续仓库根目录 `examples/` 下的正式端到端微服务 Demo。
 
 ## 6. Tooling Baseline / 工具基线
 
@@ -117,8 +151,12 @@ The workspace baseline is for development tooling, not a claim that Domain uses 
 
 ## 7. Delivery Order / 推进顺序
 
-1. Implement and validate Domain. / 实现并验证 Domain。
-2. Design Application around real use cases and transaction coordination. / 围绕真实用例和事务协调设计 Application。
-3. Implement Infrastructure adapters against stable contracts, with examples for its Abstractions. / 基于稳定契约实现 Infrastructure 适配器，并为 Abstractions 提供示例。
-4. Add Node.js runtime integrations. / 增加 Node.js Runtime 集成。
-5. Build a formal end-to-end demo and integration tests. / 建立正式端到端 Demo 和集成测试。
+1. **Complete and verify Domain.** Review its public contracts, run strict type checks, tests and build, and record actual results. / **完成并验证 Domain。** 审查公共契约，运行严格类型检查、测试和构建，并记录真实结果。
+2. **Design and implement Infrastructure.** Audit the reference .NET framework, decide Node.js-appropriate package boundaries and providers, then implement and integration-test the required database, cache, messaging, analytics and operational capabilities. / **设计并实现 Infrastructure。** 审计参考 .NET 框架，确定适合 Node.js 的 package 边界和技术供应商，再实现并集成测试所需的数据库、缓存、消息、分析存储和运维能力。
+3. **Design and implement Application.** Build use cases and orchestration against verified Domain and Infrastructure capabilities; keep business rules in Domain and provider details in Infrastructure. / **设计并实现 Application。** 基于已经验证的 Domain 和 Infrastructure 能力构建用例与编排；业务规则留在 Domain，供应商细节留在 Infrastructure。
+4. **Complete runtime hosting and bootstrap integration.** Provide the configuration, registration, startup and service-host composition needed by real services. / **完成运行时宿主与 Bootstrap 集成。** 提供真实服务所需的配置、注册、启动和服务宿主组合能力。
+5. **Build the formal microservice demo.** Demonstrate service-to-service communication, persistence, cache, messaging, reliability, observability and integration tests using real adapters. / **建立正式微服务 Demo。** 使用真实适配器展示服务间通信、持久化、缓存、消息、可靠性、可观测性和集成测试。
+
+Do not start the formal microservice demo while required infrastructure capabilities are represented only by interfaces, in-memory fakes or unverified placeholders.
+
+所需基础设施能力如果仍只有接口、内存 Fake 或未经验证的占位实现，就不要开始正式微服务 Demo。

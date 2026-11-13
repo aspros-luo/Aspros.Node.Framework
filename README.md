@@ -8,7 +8,7 @@
 
 **Domain first implementation in progress / Domain 首版实现阶段**
 
-This project is designed independently, using [Aspros.Basic.Framework](https://github.com/aspros-luo/Aspros.Basic.Framework) as architectural reference rather than mechanically translating its .NET implementation.
+This project is designed independently, using [Aspros.Basic.Framework](https://github.com/aspros-luo/Aspros.Basic.Framework) as an architectural reference rather than mechanically translating its .NET implementation.
 
 本项目独立设计，以 [Aspros.Basic.Framework](https://github.com/aspros-luo/Aspros.Basic.Framework) 作为架构参考，而不是机械翻译其 .NET 实现。
 
@@ -26,10 +26,20 @@ A capability is implemented only when working code, tests, and verification evid
 ## Packages / 模块
 
 - `packages/domain` — domain kernel, repository and Unit of Work contracts. / 领域内核、Repository 和 Unit of Work 契约。
-- `packages/application` — planned use cases and orchestration. / 计划中的应用用例与编排。
-- `packages/infrastructure` — planned persistence and external adapters. / 计划中的持久化与外部适配器。
+- `packages/infrastructure` — planned database, cache, messaging, analytics and runtime adapters. / 计划中的数据库、缓存、消息、分析存储和运行时适配器。
+- `packages/application` — planned use cases and orchestration, designed after infrastructure capabilities and contracts are established. / 计划中的应用用例与编排，在基础设施能力和契约明确后设计。
 - `packages/runtime-node` — planned Node.js-specific integrations. / 计划中的 Node.js 专属集成。
-- `examples/` — later formal end-to-end demos. / 后续正式端到端 Demo。
+- `examples/` — later formal end-to-end microservice demos. / 后续正式端到端微服务 Demo。
+
+## Architecture Delivery Order / 架构建设顺序
+
+The intended build sequence follows the reference .NET framework: **Domain → Infrastructure → Application → Microservice Demo**. This is an implementation roadmap, not a reversal of dependency direction: Domain remains independent, infrastructure adapters implement inner-layer contracts, and the service host composes Application with Infrastructure.
+
+本项目的建设顺序遵循参考 .NET 框架：**Domain → Infrastructure → Application → 微服务 Demo**。这是实施顺序，不代表依赖方向反转：Domain 保持独立，Infrastructure 适配器实现内层契约，最终由服务宿主组合 Application 与 Infrastructure。
+
+Infrastructure foundations are built and validated before Application use cases are introduced. Application is then designed against proven capabilities rather than speculative adapters.
+
+先建设并验证 Infrastructure 基础能力，再引入 Application 用例。Application 应基于经过验证的能力设计，而不是围绕尚未实现的适配器进行猜测性设计。
 
 ## Domain Example / Domain 示例
 

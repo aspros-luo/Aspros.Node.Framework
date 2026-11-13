@@ -1,6 +1,6 @@
 # Domain Package Design / Domain 模块设计
 
-**Version / 版本：Draft 1.1**  
+**Version / 版本：Draft 1.2**  
 **Status / 状态：First implementation baseline / 首版实现基线**
 
 This document is the single source of truth for Domain scope and design decisions.
@@ -26,9 +26,9 @@ Domain 不实现数据库访问、ORM、迁移、事务引擎、消息代理、H
 | Entity ID / 实体 ID | `string \| number \| bigint`; supplied externally. / 由外部提供。 |
 | Entity equality / 实体相等性 | Concrete runtime type + `Object.is(id)`; mutable attributes are ignored. / 具体运行时类型 + `Object.is(id)`；不比较可变属性。 |
 | Value Objects / 值对象 | No framework base class, equality protocol, deep comparison or runtime freezing. Business code owns semantics. / 不提供框架基类、相等协议、深度比较或运行时冻结；语义由业务负责。 |
-| Aggregate Root / 聚合根 | Optional base adds event collection only; no child-entity manager or mandatory root forwarding. / 可选基类仅增加事件收集，不管理子实体，也不强制根转发行为。 |
+| Aggregate Root / 聚合根 | Nominal symbol contract plus optional base; base adds event collection only. / Symbol 名义契约加可选基类；基类仅增加事件收集。 |
 | Repository / 仓储 | Aggregate-oriented persistence-neutral contract. / 面向聚合且与持久化技术无关的契约。 |
-| Unit of Work / 工作单元 | Contract only; implementation and transaction lifecycle belong to outer layers. / 仅定义契约；实现和事务生命周期属于外层。 |
+| Unit of Work / 工作单元 | Contract only; implementation and lifecycle belong to outer layers. / 仅定义契约；实现和生命周期属于外层。 |
 | Events / 事件 | Aggregate records events; delivery follows successful commit. / 聚合记录事件；成功提交后再投递。 |
 | Errors / 错误 | Typed errors with stable codes and optional cause. / 类型化错误、稳定代码和可选 cause。 |
 | Runtime / 运行时 | No Node.js-specific APIs or dependencies in Domain. / Domain 不使用 Node.js 专属 API 或依赖。 |
@@ -43,7 +43,6 @@ packages/domain/
 │   ├── uow/            # Unit of Work contract / 工作单元契约
 │   ├── events/         # DomainEvent / 领域事件
 │   ├── errors/         # DomainError / 领域错误
-│   ├── services/       # DomainService contract / 领域服务契约
 │   ├── specifications/ # In-memory specifications / 内存规约
 │   └── index.ts
 ├── examples/simple/    # Trade / Order / Refund / 简单领域示例
@@ -59,15 +58,15 @@ The optional `Entity<TId>` base stores a readonly ID and compares entities by co
 
 可选的 `Entity<TId>` 基类保存只读 ID，并按运行时具体类型和 ID 比较实体。数值 ID 必须为有限数值。可能超过 JavaScript 安全整数范围的数据库 BIGINT 应使用 bigint/string。
 
-Entity does not generate IDs. It does not freeze the entity or compare its attributes. A business model may implement identity behavior itself.
+Entity does not generate IDs, freeze entities, or compare their attributes. A business model may implement identity behavior itself.
 
-Entity 不生成 ID，不冻结实体，也不比较实体属性。业务模型可以自行实现身份行为。
+Entity 不生成 ID、不冻结实体，也不比较实体属性。业务模型可以自行实现身份行为。
 
 ### Value Object
 
-The framework deliberately does not define a Value Object base class, `equals()`, deep equality, or a generic immutability mechanism. The framework cannot know whether a business value such as Money, Address, or DateRange should compare by currency, normalization, interval semantics, or another rule.
+The framework deliberately does not define a Value Object base class, `equals()`, deep equality, or a generic immutability mechanism. The framework cannot know whether Money, Address, or DateRange should compare by currency, normalization, interval semantics, or another rule.
 
-框架有意不定义 Value Object 基类、`equals()`、深度相等比较或通用不可变机制。框架无法知道 Money、Address、DateRange 等业务值应按币种、标准化形式、区间语义还是其他规则比较。
+框架有意不定义 Value Object 基类、`equals()`、深度相等比较或通用不可变机制。框架无法知道 Money、Address、DateRange 应按币种、标准化形式、区间语义还是其他规则比较。
 
 Value-object validation, equality, copying, and immutability are owned by the business type.
 
@@ -75,9 +74,9 @@ Value-object validation, equality, copying, and immutability are owned by the bu
 
 ### Aggregate Root
 
-`IAggregateRoot` communicates the aggregate-root role at the contract level. `AggregateRoot<TId>` is an optional convenience base extending Entity and adding domain-event collection.
+`IAggregateRoot` uses an exported unique-symbol brand so a custom aggregate root can implement the role without inheriting the framework base. `AggregateRoot<TId>` is an optional convenience base extending Entity and adding domain-event collection.
 
-`IAggregateRoot` 在契约层表达聚合根角色。`AggregateRoot<TId>` 是可选便利基类，继承 Entity 并增加领域事件收集。
+`IAggregateRoot` 使用导出的 unique-symbol brand，使自定义聚合根无需继承框架基类也能实现该角色。`AggregateRoot<TId>` 是可选便利基类，继承 Entity 并增加领域事件收集。
 
 The base class does not add/remove/find child entities, hide child entities, or require all operations to be forwarded through the root. The business model chooses whether to expose child entities and whether to offer root-level orchestration methods.
 
@@ -117,9 +116,9 @@ Domain Error 暴露稳定的机器可读代码。HTTP 映射和本地化属于�
 
 `examples/simple` 展示 Trade 聚合包含 Order 实体和 Refund 实体。Order 自身提供 `confirm()`；Trade 也提供 `confirmOrder()` 和 `refundOrder()`。示例同时展示直接调用实体行为和聚合根统一编排，两种方式都成立。这只是示例，不是框架强制规则。
 
-The example's in-memory repository and Unit of Work are explicitly demonstration-only; they do not provide durable storage or atomic transactions. A later formal demo will exercise real outer-layer adapters.
+The example's in-memory repository and Unit of Work are demonstration-only; they do not provide durable storage or atomic transactions. A later formal demo will exercise real outer-layer adapters.
 
-示例中的内存 Repository 和 Unit of Work 明确仅用于演示，不提供持久化存储或原子事务。后续正式 Demo 将使用真实外层适配器。
+示例中的内存 Repository 和 Unit of Work 仅用于演示，不提供持久化存储或原子事务。后续正式 Demo 将使用真实外层适配器。
 
 ## 8. Verification / 验证
 
@@ -131,6 +130,6 @@ The example's in-memory repository and Unit of Work are explicitly demonstration
 
 ## 9. Explicitly Deferred / 明确延期
 
-Minimum published Node.js support policy, CJS output, persistence implementation, ORM query translation, Outbox dispatcher, and formal end-to-end demo are not part of this first Domain implementation.
+Published Node.js support policy, CJS output, persistence implementation, ORM query translation, Outbox dispatcher, and formal end-to-end demo are not part of this first Domain implementation.
 
 正式发布的 Node.js 支持策略、CJS 输出、持久化实现、ORM 查询转换、Outbox Dispatcher 和正式端到端 Demo 均不属于本次 Domain 首版范围。

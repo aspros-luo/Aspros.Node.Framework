@@ -9,7 +9,11 @@ A runtime-portable domain kernel and domain-facing contracts for Practical DDD.
 - Entity identity and optional aggregate-root base classes. / Entity 身份与可选聚合根基类。
 - Domain event and domain error primitives. / 领域事件与领域错误基础构件。
 - Aggregate repository and Unit of Work contracts. / 聚合仓储与工作单元契约。
-- Domain service and specification abstractions. / 领域服务与规约抽象。
+- Composable in-memory specifications. / 可组合的内存规约。
+
+Domain services remain ordinary business classes; this package does not add an empty marker or base class for them.
+
+领域服务保持为普通业务类；本 package 不为其增加没有实际行为的标记接口或基类。
 
 This package does not implement persistence, transactions, messaging, HTTP, or runtime adapters.
 
@@ -27,6 +31,6 @@ Run from the repository root after installing workspace dependencies:
 
 安装工作区依赖后，在仓库根目录运行：
 
-- `pnpm --filter @aspros/domain typecheck` (includes source, tests and examples / 包含源码、测试和示例)
+- `pnpm --filter @aspros/domain typecheck` (source, tests and examples / 源码、测试和示例)
 - `pnpm --filter @aspros/domain test`
 - `pnpm --filter @aspros/domain build`

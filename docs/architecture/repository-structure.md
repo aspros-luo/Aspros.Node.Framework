@@ -4,9 +4,9 @@
 
 ## 1. Repository Shape / 仓库整体结构
 
-The repository uses a pnpm workspace. Domain is the first package to be implemented; other packages are added only after their boundaries are designed.
+The repository uses a pnpm workspace. Domain is the first package; other packages are added only after their boundaries are designed.
 
-仓库采用 pnpm workspace。Domain 是首个实现的 package；其他 package 在职责边界明确后再逐步建立。
+仓库采用 pnpm workspace。Domain 是首个 package；其他模块在职责边界明确后再逐步建立。
 
 ```text
 Aspros.Node.Framework/
@@ -23,7 +23,6 @@ Aspros.Node.Framework/
     │   │   ├── uow/
     │   │   ├── events/
     │   │   ├── errors/
-    │   │   ├── services/
     │   │   ├── specifications/
     │   │   └── index.ts
     │   ├── examples/simple/
@@ -44,12 +43,11 @@ Aspros.Node.Framework/
 - `uow/`: Unit of Work contract only; no transaction implementation. / 仅定义工作单元契约，不实现事务。
 - `events/`: domain event contracts and metadata. / 领域事件契约与元数据。
 - `errors/`: typed domain errors and stable codes. / 类型化领域错误与稳定代码。
-- `services/`: domain service marker/contracts. / 领域服务标记与契约。
 - `specifications/`: reusable in-memory domain predicates. / 可复用的内存领域判断条件。
-- `examples/simple/`: a small Trade / Order / Refund usage example. / Trade / Order / Refund 小型用法示例。
+- `examples/simple/`: Trade / Order / Refund usage example. / Trade / Order / Refund 用法示例。
 - `tests/`: package behavior tests, including example behavior. / package 行为测试，包括示例行为。
 
-The requested `entities`, `repositories`, and `uow` folders are first-class parts of Domain. Examples are kept separate from the public source entry point and are not exported as framework APIs.
+The requested `entities`, `repositories`, and `uow` folders are first-class parts of Domain. Examples are separate from the public source entry point and are not exported as framework APIs.
 
 用户指定的 `entities`、`repositories` 和 `uow` 是 Domain 的正式目录。示例与公共源码入口分离，不作为框架 API 导出。
 
@@ -75,9 +73,7 @@ Implements persistence, external service, messaging and technical adapters requi
 
 ### Runtime Node (planned) / Node Runtime（计划中）
 
-Contains capabilities that genuinely require Node.js APIs.
-
-包含确实需要 Node.js API 的能力。
+Contains capabilities that genuinely require Node.js APIs. / 包含确实需要 Node.js API 的能力。
 
 ## 4. Dependency Direction / 依赖方向
 
@@ -104,9 +100,9 @@ This is a responsibility sketch, not a complete import graph. An adapter depends
 | Domain target / Domain 编译目标 | ES2022 |
 | Workspace Node baseline / 工作区 Node 基线 | Node.js 22+ |
 
-The workspace baseline is a development/tooling baseline, not a claim that Domain uses Node.js APIs. Revisit it when the package support policy is finalized.
+The workspace baseline is for development tooling, not a claim that Domain uses Node.js APIs. Revisit it when package support policy is finalized.
 
-工作区基线用于开发和工具链，不代表 Domain 使用 Node.js API。正式确定 package 支持策略时再复核。
+工作区基线用于开发工具链，不代表 Domain 使用 Node.js API。正式确定 package 支持策略时再复核。
 
 ## 6. Delivery Order / 推进顺序
 

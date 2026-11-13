@@ -27,10 +27,7 @@ Aspros.Node.Framework/
     │   │   └── index.ts
     │   ├── examples/simple/
     │   ├── tests/
-    │   ├── package.json
-    │   ├── tsconfig.json
-    │   ├── tsconfig.all.json
-    │   └── README.md
+    │   └── package.json, tsconfig*.json, README.md
     ├── application/       # planned / 计划中
     ├── infrastructure/    # planned / 计划中
     └── runtime-node/      # planned / 计划中
@@ -71,6 +68,10 @@ Implements persistence, external service, messaging and technical adapters requi
 
 实现内层需要的持久化、外部服务、消息和技术适配器，不拥有领域规则。
 
+Infrastructure's public Abstractions must be accompanied by focused examples showing both the contract and a realistic adapter usage. The same example-first rule applies to abstractions introduced in later packages.
+
+Infrastructure 的公共 Abstractions 必须配套精简示例，同时展示契约和真实适配器的使用方式。后续 package 新增的抽象也遵循相同的示例优先原则。
+
 ### Runtime Node (planned) / Node Runtime（计划中）
 
 Contains capabilities that genuinely require Node.js APIs. / 包含确实需要 Node.js API 的能力。
@@ -88,7 +89,17 @@ This is a responsibility sketch, not a complete import graph. An adapter depends
 
 这是职责示意图，不是完整 import 图。适配器依赖其实现的端口；Domain 永远不导入适配器。
 
-## 5. Tooling Baseline / 工具基线
+## 5. Example Policy / 示例规范
+
+Every package should include small examples for important public abstractions, not only API declarations. Examples must identify what is a contract, what is an implementation, and what is merely illustrative. Tests verify the behavior; examples explain how consumers compose the pieces.
+
+每个 package 的重要公共抽象都应配套小型示例，而不只是声明 API。示例必须区分契约、具体实现和仅供说明的内容。测试负责验证行为；示例负责说明使用者如何组合这些构件。
+
+These focused examples do not replace the later formal end-to-end demo under the repository-level `examples/` directory.
+
+这些分层小示例不能替代后续仓库根目录 `examples/` 下的正式端到端 Demo。
+
+## 6. Tooling Baseline / 工具基线
 
 | Concern / 事项 | Current choice / 当前选择 |
 |---|---|
@@ -104,10 +115,10 @@ The workspace baseline is for development tooling, not a claim that Domain uses 
 
 工作区基线用于开发工具链，不代表 Domain 使用 Node.js API。正式确定 package 支持策略时再复核。
 
-## 6. Delivery Order / 推进顺序
+## 7. Delivery Order / 推进顺序
 
 1. Implement and validate Domain. / 实现并验证 Domain。
 2. Design Application around real use cases and transaction coordination. / 围绕真实用例和事务协调设计 Application。
-3. Implement Infrastructure adapters against stable contracts. / 基于稳定契约实现 Infrastructure 适配器。
+3. Implement Infrastructure adapters against stable contracts, with examples for its Abstractions. / 基于稳定契约实现 Infrastructure 适配器，并为 Abstractions 提供示例。
 4. Add Node.js runtime integrations. / 增加 Node.js Runtime 集成。
 5. Build a formal end-to-end demo and integration tests. / 建立正式端到端 Demo 和集成测试。

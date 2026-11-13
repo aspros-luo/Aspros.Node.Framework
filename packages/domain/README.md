@@ -27,6 +27,6 @@ Run from the repository root after installing workspace dependencies:
 
 安装工作区依赖后，在仓库根目录运行：
 
-- `pnpm --filter @aspros/domain typecheck`
+- `pnpm --filter @aspros/domain typecheck` (includes source, tests and examples / 包含源码、测试和示例)
 - `pnpm --filter @aspros/domain test`
 - `pnpm --filter @aspros/domain build`

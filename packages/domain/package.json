@@ -3,6 +3,6 @@
   "main":"./dist/index.js","types":"./dist/index.d.ts",
   "exports":{".":{"types":"./dist/index.d.ts","import":"./dist/index.js"}},
   "files":["dist","README.md"],
-  "scripts":{"build":"tsc -p tsconfig.json","typecheck":"tsc --noEmit -p tsconfig.json","typecheck:all":"tsc -p tsconfig.all.json","test":"vitest run"},
+  "scripts":{"build":"tsc -p tsconfig.json","typecheck":"tsc -p tsconfig.all.json","typecheck:source":"tsc --noEmit -p tsconfig.json","test":"vitest run"},
   "devDependencies":{"typescript":"workspace:*","vitest":"workspace:*"}
 }

@@ -1,1 +1,19 @@
-{"name":"aspros-node-framework","private":true,"type":"module","packageManager":"pnpm@10.12.1","engines":{"node":">=22.0.0"},"scripts":{"build":"pnpm --filter @aspros/domain build","test":"pnpm --filter @aspros/domain test","typecheck":"pnpm --filter @aspros/domain typecheck","check":"pnpm typecheck && pnpm test && pnpm build"},"devDependencies":{"typescript":"^5.9.3","vitest":"^3.2.4"}}
+{
+  "name": "aspros-node-framework",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.12.1",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "pnpm --filter @aspros/domain --filter @aspros/infrastructure build",
+    "test": "pnpm --filter @aspros/domain test",
+    "typecheck": "pnpm --filter @aspros/domain --filter @aspros/infrastructure typecheck",
+    "check": "pnpm typecheck && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

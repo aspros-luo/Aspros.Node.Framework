@@ -6,7 +6,9 @@
 
 ## Project Status / 项目状态
 
-**Domain first implementation in progress / Domain 首版实现阶段**
+The Domain baseline has been created. The Infrastructure workspace package and its initial capability design have now been initialized; provider audit and implementation are the next work items.
+
+Domain 首版基线已经建立。Infrastructure 工作区 package 及首轮能力设计现已初始化；下一步是供应商审计与具体能力实现。
 
 This project is designed independently, using [Aspros.Basic.Framework](https://github.com/aspros-luo/Aspros.Basic.Framework) as an architectural reference rather than mechanically translating its .NET implementation.
 
@@ -26,8 +28,8 @@ A capability is implemented only when working code, tests, and verification evid
 ## Packages / 模块
 
 - `packages/domain` — domain kernel, repository and Unit of Work contracts. / 领域内核、Repository 和 Unit of Work 契约。
-- `packages/infrastructure` — planned database, cache, messaging, analytics and runtime adapters. / 计划中的数据库、缓存、消息、分析存储和运行时适配器。
-- `packages/application` — planned use cases and orchestration, designed after infrastructure capabilities and contracts are established. / 计划中的应用用例与编排，在基础设施能力和契约明确后设计。
+- `packages/infrastructure` — initialized package boundary for database, cache, messaging, analytics, communication and operations adapters. Provider implementations are not yet included. / 已初始化数据库、缓存、消息、分析存储、服务通信和运维适配器的 package 边界；具体供应商实现尚未加入。
+- `packages/application` — planned use cases and orchestration, designed after required infrastructure capabilities are implemented and verified. / 计划中的应用用例与编排，待所需基础设施能力实现并验证后再设计。
 - `packages/runtime-node` — planned Node.js-specific integrations. / 计划中的 Node.js 专属集成。
 - `examples/` — later formal end-to-end microservice demos. / 后续正式端到端微服务 Demo。
 
@@ -39,7 +41,7 @@ The intended build sequence follows the reference .NET framework: **Domain → I
 
 Infrastructure foundations are built and validated before Application use cases are introduced. Application is then designed against proven capabilities rather than speculative adapters.
 
-先建设并验证 Infrastructure 基础能力，再引入 Application 用例。Application 应基于经过验证的能力设计，而不是围绕尚未实现的适配器进行猜测性设计。
+先建设并验证 Infrastructure 基础能力，再引入 Application。Application 应基于经过验证的能力设计，而不是围绕尚未实现的适配器进行猜测性设计。
 
 ## Domain Example / Domain 示例
 
@@ -52,10 +54,15 @@ The first Domain package includes a focused Trade / Order / Refund example under
 - `pnpm install`
 - `pnpm check`
 
+The Infrastructure package currently participates in type checking and build. Its capability-specific tests will be added together with the first real adapter; the current test command runs the Domain test suite only.
+
+Infrastructure package 当前参与类型检查和构建。能力专项测试将在首个真实适配器落地时同步加入；当前测试命令仅运行 Domain 测试集。
+
 ## Documentation / 文档
 
 - [Repository Structure / 仓库结构](docs/architecture/repository-structure.md)
 - [Domain Design / Domain 设计](docs/architecture/domain-design.md)
+- [Infrastructure Design / Infrastructure 设计](docs/architecture/infrastructure-design.md)
 - [ADR-0001: Domain Runtime Portability / Domain 运行时可移植性](docs/architecture/decisions/ADR-0001-domain-runtime-portability.md)
 
 ## Engineering Standards / 工程规范

@@ -35,9 +35,9 @@ pnpm poc:trade-mapping
 
 ## Optional MySQL Integration / 可选 MySQL 集成验证
 
-Use a dedicated, disposable MySQL database. Never point this experiment at production or a database containing valuable data.
+Use the dedicated database named `aspros_trade_poc` on a disposable MySQL instance. The bootstrap rejects every other database name. Never point this experiment at production or a database containing valuable data.
 
-必须使用专门的一次性 MySQL 数据库。绝不可将本实验指向生产环境或包含重要数据的数据库。
+必须在一次性 MySQL 实例中使用名为 `aspros_trade_poc` 的专用数据库。启动入口会拒绝其他数据库名称。绝不可将本实验指向生产环境或包含重要数据的数据库。
 
 Create the database explicitly, then apply the idempotent schema script:
 

@@ -17,10 +17,11 @@ describe.skipIf(!clientUrl)("MikroORM MySQL Trade persistence", () => {
 
   it("persists and reloads a complete aggregate in a fresh EntityManager", async () => {
     const orm = await ormPromise;
-    const tradeId = randomInt(1, 2_000_000_000);
-    const pendingOrderId = randomInt(1, 2_000_000_000);
-    const refundedOrderId = randomInt(1, 2_000_000_000);
-    const refundId = randomInt(1, 2_000_000_000);
+    const idBase = randomInt(100, 1_000_000_000);
+    const tradeId = idBase;
+    const pendingOrderId = idBase + 1;
+    const refundedOrderId = idBase + 2;
+    const refundId = idBase + 3;
 
     const pendingOrder = new Order(pendingOrderId, "Keyboard", 2, 4500);
     const refundedOrder = new Order(refundedOrderId, "Mouse", 1, 2500);

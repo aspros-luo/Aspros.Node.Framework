@@ -36,7 +36,7 @@ const RefundRecordSchema = defineEntity({
   tableName: "refunds",
   properties: {
     id: p.integer().primary(),
-    trade: () => p.manyToOne(TradeRecord).fieldName("trade_id"),
+    trade: () => p.manyToOne(TradeRecord).joinColumn("trade_id"),
     order: () => p.manyToOne(OrderRecord).joinColumn("order_id"),
     amountMinor: p.integer().fieldName("amount_minor"),
     reason: p.text(),

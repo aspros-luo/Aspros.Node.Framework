@@ -350,7 +350,7 @@ The first spike will prove Domain-to-record mapping and round-trip aggregate res
 
 ### Current POC implementation / 当前 POC 实现
 
-The isolated experiment now has a caller-configured MikroORM bootstrap, restricted to the dedicated `aspros_trade_poc` database, plus a reviewable idempotent MySQL DDL script. The opt-in integration test persists the mapped Trade/Order/Refund records, creates a fresh EntityManager identity map, reloads the graph, and reconstructs the Domain aggregate. The SQL schema includes a composite foreign key so a Refund cannot reference an Order belonging to a different Trade.
+The isolated experiment now has a caller-configured MikroORM bootstrap, restricted to the dedicated `aspros_trade_poc` database, a reviewable idempotent MySQL DDL script, and Trade-specific Repository/Unit of Work adapters. Opt-in integration tests cover both direct record persistence and the adapter path. These tests have not been executed locally. The SQL schema includes a composite foreign key so a Refund cannot reference an Order belonging to a different Trade.
 
 独立实验现已具备由调用方提供连接配置的 MikroORM 启动入口，并且只允许连接专用的 `aspros_trade_poc` 数据库；同时提供可审查、可重复执行的 MySQL DDL 脚本。可选集成测试会持久化映射后的 Trade/Order/Refund 记录，创建全新的 EntityManager Identity Map，重新加载对象图并重建 Domain 聚合。SQL Schema 使用复合外键，避免 Refund 引用属于其他 Trade 的 Order。
 
@@ -359,7 +359,40 @@ The integration test is opt-in via `MYSQL_POC_DATABASE_URL`; without it, Vitest 
 集成测试通过 `MYSQL_POC_DATABASE_URL` 显式启用；未设置时 Vitest 会跳过 MySQL 测试。测试只删除自身生成的唯一 ID 对应记录。在项目所有者使用一次性 MySQL 实例执行文档中的命令前，这些改动仍未获得真实运行验证。
 
 
-## 10.2 Object Model Boundaries / 对象模型边界
+## 10.2 Repository and Unit of Work Adapter POC / Repository 与 Unit of Work 适配器验证
+
+The isolated Trade POC now contains a concrete, Trade-specific implementation of the Domain `IRepository<Trade, number>` and `IUnitOfWork` contracts. This is still an experiment, not a public or generic Infrastructure API.
+
+独立 Trade POC 现已包含 Domain `IRepository<Trade, number>` 和 `IUnitOfWork` 契约的 Trade 专用实现。这仍然是实验代码，不是公开或通用的 Infrastructure API。
+
+### Scope ownership / Scope 所有权
+
+- `createTradePersistenceScope(rootEntityManager)` forks a fresh EntityManager with a cleared identity map and begins one explicit top-level transaction. The returned Repository and Unit of Work share this same EntityManager. / `createTradePersistenceScope(rootEntityManager)` 会 Fork 一个 Identity Map 已清空的 EntityManager，并开启一个显式顶层事务。返回的 Repository 与 Unit of Work 共享该 EntityManager。
+- The scope rejects a root EntityManager that is already in a transaction. It does not silently create an independent transaction when the caller may expect REQUIRED/join-existing behavior. / 若 Root EntityManager 已处于事务中，Scope 会拒绝创建；不会在调用方可能期待 REQUIRED/加入现有事务时，静默创建独立事务。
+- Commit flushes and commits through the EntityManager. Rollback rolls back the owned transaction. Both paths clear the identity map; a failed commit/rollback makes the scope unusable. / Commit 通过 EntityManager 执行 Flush 和 Commit；Rollback 回滚由 Scope 拥有的事务。两条路径都会清空 Identity Map；Commit/Rollback 失败后 Scope 不可继续使用。
+- A failed database transaction does not rewind mutated in-memory Domain objects. The caller must discard the scope and reload aggregates in a new one. / 数据库事务失败不会还原已变化的内存 Domain 对象。调用方必须丢弃当前 Scope，并在新 Scope 中重新加载聚合。
+
+### Repository behavior / Repository 行为
+
+- `findById` loads Trade, all its Orders, and all its Refunds before invoking the explicit Domain mapper. / `findById` 会先加载 Trade、其全部 Order 和 Refund，再调用显式 Domain Mapper。
+- `save` requires an active Unit of Work transaction and only stages persistence changes; it never flushes or commits. / `save` 要求当前存在活动 Unit of Work 事务，只暂存持久化变更，不执行 Flush 或 Commit。
+- Existing child rows are reconciled by ID. Because the current Domain example has no child-removal behavior, a persisted child omitted from the supplied aggregate causes an explicit consistency error instead of an implicit delete. / 已有子记录按 ID 协调。由于当前 Domain 示例没有子实体删除行为，若传入聚合遗漏已持久化子记录，会明确抛出一致性错误，而不是隐式删除。
+- New child IDs are checked for collisions. New/updated Refund records are linked to the managed Trade and Order records in the current identity map. / 新子实体 ID 会检查冲突；新增/更新的 Refund 会关联当前 Identity Map 中托管的 Trade 和 Order 记录。
+- The adapter does not yet implement optimistic concurrency/version columns, soft deletion, aggregate child removal, or generic repository composition. / 此适配器尚未实现乐观并发/版本列、软删除、聚合子实体删除或通用 Repository 组合。
+
+### Explicitly deferred / 明确暂缓
+
+REQUIRED propagation, joining a caller-owned transaction, nested savepoint policy, raw SQL/Kysely sharing, Transactional Outbox, and event publication remain deferred. In particular, Domain events are not automatically cleared by this POC: event capture, durable outbox persistence, publication and clearing must be coordinated so events are not lost between database commit and delivery.
+
+REQUIRED 传播、加入调用方事务、嵌套 Savepoint 策略、原生 SQL/Kysely 共享、Transactional Outbox 和事件发布仍暂缓。特别是此 POC 不会自动清空 Domain 事件：事件捕获、Outbox 持久化、事件发布和清空必须协调，避免数据库提交与事件投递之间丢失事件。
+
+### Verification status / 验证状态
+
+An opt-in MySQL integration case has been added for the Repository/Unit of Work path. No typecheck, unit test, or MySQL test has been executed in the current environment. All new adapter behavior remains pending local verification against the disposable `aspros_trade_poc` database.
+
+已增加 Repository/Unit of Work 路径的可选 MySQL 集成测试。本环境尚未执行类型检查、单元测试或 MySQL 测试。所有新适配器行为仍待在一次性 `aspros_trade_poc` 数据库上进行本地验证。
+
+## 10.3 Object Model Boundaries / 对象模型边界
 
 The framework distinguishes persistence records (DO), domain objects, application transfer models (DTO), and API view models (VO). These names describe different responsibilities; they are not interchangeable aliases for one shared class.
 
@@ -396,7 +429,7 @@ This is a business-code layering convention and does not require every framework
 
 **New finding / 新发现：** direct ORM hydration of the current Domain classes is not the preferred approach. The POC will map separate MikroORM persistence records to and from Domain objects by calling public Domain constructors and legal state-transition methods. / 不建议让 ORM 直接还原当前 Domain 类。POC 将使用独立 MikroORM 持久化记录，通过调用 Domain 公共构造函数和合法状态转换方法完成双向映射。
 
-**Next / 下一步：** run the POC typecheck and mapper tests, then execute the opt-in MySQL integration test against the disposable `aspros_trade_poc` database. Resolve any real runtime issues before implementing Repository/UoW, transaction propagation, or raw SQL sharing. No production provider dependency or public Infrastructure API is approved yet. / 先运行 POC 类型检查和 Mapper 测试，再连接一次性 `aspros_trade_poc` 数据库执行可选 MySQL 集成测试。解决真实运行问题后，才实现 Repository/UoW、事务传播或原生 SQL 共享。目前仍未批准生产 Provider 依赖或公开 Infrastructure API。
+**Next / 下一步：** complete the isolated POC design for transaction propagation, same-transaction raw SQL, failure lifecycle and migration strategy while the local Docker environment is being prepared. Once available, run the typecheck, mapper tests and MySQL integration suite before promoting any adapter into the production Infrastructure package. / 在本地 Docker 环境准备期间，继续完善独立 POC 的事务传播、同事务原生 SQL、失败生命周期和 Migration 策略设计。环境可用后，先运行类型检查、Mapper 测试和 MySQL 集成测试，再考虑将适配器提升到正式 Infrastructure package。
 
 Application remains deferred until required Infrastructure capabilities have working implementations and verification evidence.
 

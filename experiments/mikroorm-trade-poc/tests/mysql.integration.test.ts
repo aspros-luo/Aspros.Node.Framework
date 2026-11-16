@@ -2,6 +2,7 @@ import { randomInt } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { Order, Refund, Trade } from "../../../packages/domain/examples/simple/trade.js";
 import { createTradePocOrm } from "../src/bootstrap.js";
+import { createTradePersistenceScope } from "../src/unit-of-work.js";
 import { TradeMapper } from "../src/trade-mapper.js";
 import { OrderRecord, RefundRecord, TradeRecord } from "../src/records.js";
 
@@ -82,4 +83,48 @@ describe.skipIf(!clientUrl)("MikroORM MySQL Trade persistence", () => {
       }
     }
   });
+
+  it("saves and reloads through the Repository and Unit of Work adapters", async () => {
+    const orm = await ormPromise;
+    const idBase = randomInt(100, 1_000_000_000);
+    const tradeId = idBase;
+    const orderId = idBase + 1;
+    const refundId = idBase + 2;
+    const order = new Order(orderId, "Trackpad", 1, 7200);
+    order.confirm();
+    order.markRefunded();
+    const aggregate = new Trade(
+      tradeId,
+      [order],
+      [new Refund(refundId, orderId, 7200, "Adapter integration")],
+    );
+
+    try {
+      const writeScope = await createTradePersistenceScope(orm.em);
+      await writeScope.tradeRepository.save(aggregate);
+      await writeScope.unitOfWork.commit();
+
+      const readScope = await createTradePersistenceScope(orm.em);
+      try {
+        const restored = await readScope.tradeRepository.findById(tradeId);
+        expect(restored).not.toBeNull();
+        expect(restored?.orders[0]?.status).toBe("refunded");
+        expect(restored?.refunds).toHaveLength(1);
+        await readScope.unitOfWork.rollback();
+      } catch (error) {
+        try { await readScope.unitOfWork.rollback(); } catch { /* Scope is already closed. */ }
+        throw error;
+      }
+    } finally {
+      const cleanup = orm.em.fork({ clear: true });
+      try {
+        await cleanup.nativeDelete(RefundRecord, { trade: tradeId });
+        await cleanup.nativeDelete(OrderRecord, { trade: tradeId });
+        await cleanup.nativeDelete(TradeRecord, { id: tradeId });
+      } finally {
+        cleanup.clear();
+      }
+    }
+  });
+
 });

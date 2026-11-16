@@ -380,11 +380,21 @@ The isolated Trade POC now contains a concrete, Trade-specific implementation of
 - New child IDs are checked for collisions. New/updated Refund records are linked to the managed Trade and Order records in the current identity map. / 新子实体 ID 会检查冲突；新增/更新的 Refund 会关联当前 Identity Map 中托管的 Trade 和 Order 记录。
 - The adapter does not yet implement optimistic concurrency/version columns, soft deletion, aggregate child removal, or generic repository composition. / 此适配器尚未实现乐观并发/版本列、软删除、聚合子实体删除或通用 Repository 组合。
 
+### Same-transaction SQL / 同事务 SQL
+
+MikroORM 7.2 documents a first-class Kysely integration through `EntityManager.getKysely()`. Kysely operations issued through the same EntityManager while its explicit transaction is active use that transaction context; a forked EntityManager without the transaction context uses the pool instead. This is a promising Node equivalent for the reference framework's Dapper-style raw SQL access, without introducing a second independently managed connection.
+
+MikroORM 7.2 文档提供了通过 `EntityManager.getKysely()` 使用 Kysely 的一等集成。在同一个 EntityManager 的显式事务活动期间执行 Kysely 操作，会使用该事务上下文；没有事务上下文的 Fork EntityManager 则会使用连接池。这有望成为参考框架中 Dapper 风格原生 SQL 访问在 Node 技术栈中的对应方案，并避免再独立管理第二条连接。
+
+A MySQL integration case now stages a Trade through the Repository, flushes ORM DML inside the open transaction, inserts a test-only audit row through Kysely, rolls back, and verifies from a fresh EntityManager that both writes are absent. This test is added but has not been run.
+
+现已增加 MySQL 集成测试：通过 Repository 暂存 Trade，在已开启事务内 Flush ORM DML，再通过 Kysely 插入仅供测试的审计记录，随后回滚，并使用全新 EntityManager 验证两类写入均不存在。该测试已加入但尚未运行。
+
 ### Explicitly deferred / 明确暂缓
 
-REQUIRED propagation, joining a caller-owned transaction, nested savepoint policy, raw SQL/Kysely sharing, Transactional Outbox, and event publication remain deferred. In particular, Domain events are not automatically cleared by this POC: event capture, durable outbox persistence, publication and clearing must be coordinated so events are not lost between database commit and delivery.
+REQUIRED propagation, joining a caller-owned transaction, nested savepoint policy, Transactional Outbox, and event publication remain deferred. The Kysely same-transaction path has now been added as an opt-in integration probe but is not yet verified. In particular, Domain events are not automatically cleared by this POC: event capture, durable outbox persistence, publication and clearing must be coordinated so events are not lost between database commit and delivery.
 
-REQUIRED 传播、加入调用方事务、嵌套 Savepoint 策略、原生 SQL/Kysely 共享、Transactional Outbox 和事件发布仍暂缓。特别是此 POC 不会自动清空 Domain 事件：事件捕获、Outbox 持久化、事件发布和清空必须协调，避免数据库提交与事件投递之间丢失事件。
+REQUIRED 传播、加入调用方事务、嵌套 Savepoint 策略、Transactional Outbox 和事件发布仍暂缓。Kysely 同事务路径已加入可选集成验证，但尚未验证。特别是此 POC 不会自动清空 Domain 事件：事件捕获、Outbox 持久化、事件发布和清空必须协调，避免数据库提交与事件投递之间丢失事件。
 
 ### Verification status / 验证状态
 
@@ -429,7 +439,7 @@ This is a business-code layering convention and does not require every framework
 
 **New finding / 新发现：** direct ORM hydration of the current Domain classes is not the preferred approach. The POC will map separate MikroORM persistence records to and from Domain objects by calling public Domain constructors and legal state-transition methods. / 不建议让 ORM 直接还原当前 Domain 类。POC 将使用独立 MikroORM 持久化记录，通过调用 Domain 公共构造函数和合法状态转换方法完成双向映射。
 
-**Next / 下一步：** complete the isolated POC design for transaction propagation, same-transaction raw SQL, failure lifecycle and migration strategy while the local Docker environment is being prepared. Once available, run the typecheck, mapper tests and MySQL integration suite before promoting any adapter into the production Infrastructure package. / 在本地 Docker 环境准备期间，继续完善独立 POC 的事务传播、同事务原生 SQL、失败生命周期和 Migration 策略设计。环境可用后，先运行类型检查、Mapper 测试和 MySQL 集成测试，再考虑将适配器提升到正式 Infrastructure package。
+**Next / 下一步：** complete the isolated POC design for transaction propagation, failure lifecycle, production migration strategy and adapter lifecycle while the local Docker environment is being prepared. The Kysely same-transaction probe is now present and awaits execution. Once available, run the typecheck, mapper tests and MySQL integration suite before promoting any adapter into the production Infrastructure package. / 在本地 Docker 环境准备期间，继续完善独立 POC 的事务传播、失败生命周期、生产 Migration 策略和适配器生命周期设计。Kysely 同事务验证已加入，等待实际执行。环境可用后，先运行类型检查、Mapper 测试和 MySQL 集成测试，再考虑将适配器提升到正式 Infrastructure package。
 
 Application remains deferred until required Infrastructure capabilities have working implementations and verification evidence.
 

@@ -37,3 +37,14 @@ CREATE TABLE IF NOT EXISTS refunds (
   CONSTRAINT fk_refunds_order_trade
     FOREIGN KEY (order_id, trade_id) REFERENCES orders (id, trade_id)
 ) ENGINE=InnoDB;
+
+
+-- Transaction-sharing probe table; this is test-only and carries no business data.
+-- 事务共享验证表；仅用于测试，不承载业务数据。
+CREATE TABLE IF NOT EXISTS poc_audit (
+  id BIGINT UNSIGNED NOT NULL,
+  trade_id INT NOT NULL,
+  message VARCHAR(255) NOT NULL,
+  PRIMARY KEY (id),
+  KEY ix_poc_audit_trade_id (trade_id)
+) ENGINE=InnoDB;

@@ -6,6 +6,10 @@ import { createTradePersistenceScope } from "../src/unit-of-work.js";
 import { TradeMapper } from "../src/trade-mapper.js";
 import { OrderRecord, RefundRecord, TradeRecord } from "../src/records.js";
 
+interface PocAuditDatabase {
+  poc_audit: { id: number; trade_id: number; message: string };
+}
+
 const clientUrl = process.env.MYSQL_POC_DATABASE_URL;
 
 describe.skipIf(!clientUrl)("MikroORM MySQL Trade persistence", () => {
@@ -124,6 +128,52 @@ describe.skipIf(!clientUrl)("MikroORM MySQL Trade persistence", () => {
       } finally {
         cleanup.clear();
       }
+    }
+  });
+
+
+  it("rolls back ORM and Kysely writes in the same transaction", async () => {
+    const orm = await ormPromise;
+    const idBase = randomInt(100, 1_000_000_000);
+    const tradeId = idBase;
+    const orderId = idBase + 1;
+    const auditId = idBase + 2;
+    const aggregate = new Trade(
+      tradeId,
+      [new Order(orderId, "USB Hub", 1, 1800)],
+    );
+    const scope = await createTradePersistenceScope(orm.em);
+
+    try {
+      await scope.tradeRepository.save(aggregate);
+      // Flush sends ORM DML but does not commit the explicitly opened transaction.
+      // Flush 会执行 ORM DML，但不会提交显式开启的事务。
+      await scope.entityManager.flush();
+
+      await scope.entityManager
+        .getKysely<PocAuditDatabase>()
+        .insertInto("poc_audit")
+        .values({ id: auditId, trade_id: tradeId, message: "rollback probe" })
+        .execute();
+
+      await scope.unitOfWork.rollback();
+    } catch (error) {
+      try { await scope.unitOfWork.rollback(); } catch { /* Scope is already closed. */ }
+      throw error;
+    }
+
+    const verifier = orm.em.fork({ clear: true });
+    try {
+      expect(await verifier.count(TradeRecord, { id: tradeId })).toBe(0);
+      const audit = await verifier
+        .getKysely<PocAuditDatabase>()
+        .selectFrom("poc_audit")
+        .selectAll()
+        .where("id", "=", auditId)
+        .executeTakeFirst();
+      expect(audit).toBeUndefined();
+    } finally {
+      verifier.clear();
     }
   });
 

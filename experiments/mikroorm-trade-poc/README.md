@@ -99,3 +99,14 @@ The current scope owns its transaction and rejects a root EntityManager that is 
 After a failed commit or rollback, the scope is unusable and its identity map is cleared. The caller must create a new scope and reload the aggregate; in-memory Domain objects are not rewound by database rollback. Domain events are not automatically cleared or published by this POC adapter.
 
 Commit 或 Rollback 失败后，Scope 不可继续使用，Identity Map 会被清空。调用方必须创建新 Scope 并重新加载聚合；数据库回滚不会回滚内存中的 Domain 对象。此 POC 适配器不会自动清空或发布领域事件。
+
+
+## Same-Transaction SQL / 同事务原生 SQL
+
+MikroORM 7.2 provides a first-class Kysely integration through `EntityManager.getKysely()`. When called on the EntityManager that owns an active transaction, Kysely queries use that transaction context. The integration test explicitly flushes the ORM changes, writes a test-only audit row through Kysely, then rolls back and verifies that neither write remains.
+
+MikroORM 7.2 通过 `EntityManager.getKysely()` 提供一等 Kysely 集成。在拥有活动事务的 EntityManager 上调用时，Kysely 查询会使用同一个事务上下文。集成测试会先 Flush ORM 变更，再通过 Kysely 写入仅供测试的审计记录，随后回滚并验证两类写入都不存在。
+
+This is the current candidate for Dapper-like SQL access in the Node stack; it is not yet a published framework-level SQL executor abstraction. The behavior still requires execution against the local disposable MySQL database.
+
+这是当前 Node 技术栈中对应 Dapper 类 SQL 访问的候选方案；它尚不是已发布的框架级 SQL Executor 抽象。该行为仍需在本地一次性 MySQL 数据库中实际执行验证。

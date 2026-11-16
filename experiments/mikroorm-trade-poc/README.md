@@ -44,7 +44,7 @@ Create the database explicitly, then apply the idempotent schema script:
 先显式创建数据库，再执行可重复运行的 Schema 脚本：
 
 ```bash
-mysql -h 127.0.0.1 -u <user> -p -e "CREATE DATABASE aspros_trade_poc CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+mysql -h 127.0.0.1 -u <user> -p -e "CREATE DATABASE IF NOT EXISTS aspros_trade_poc CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 mysql -h 127.0.0.1 -u <user> -p aspros_trade_poc < experiments/mikroorm-trade-poc/src/schema.mysql.sql
 ```
 

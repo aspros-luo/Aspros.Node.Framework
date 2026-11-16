@@ -38,7 +38,7 @@ The reference framework is a source of proven requirements and behavior, not a m
 |---|---|---|
 | EF Core | Relational persistence, mapping, migrations, and aggregate repository adapters. / 关系型持久化、映射、迁移和聚合仓储适配器。 | Select a Node ORM/query-builder only after evaluating transaction and migration behavior. / 评估事务与迁移能力后再选择 Node ORM/Query Builder。 |
 | Dapper / IDapperExecutor | Explicit SQL execution for complex queries, reports, and performance-sensitive reads. / 为复杂查询、报表和性能敏感读取提供显式 SQL 执行能力。 | Design a small executor that can share the active database transaction; do not duplicate ORM features. / 设计可复用当前数据库事务的精简执行器，不重复实现 ORM 功能。 |
-| UnitOfWork | Coordinate persistence operations and explicit transaction boundaries. / 协调持久化操作和显式事务边界。 | Implement Domain IUnitOfWork; ordinary single-operation work should not require an unnecessary explicit transaction. / 实现 Domain IUnitOfWork；普通单次操作不应被迫开启多余事务。 |
+| UnitOfWork | Coordinate persistence operations and explicit transaction boundaries. / 协调持久化操作和显式事务边界。 | Implement Domain IUnitOfWork with explicit register/commit semantics; transactions are opt-in. / 实现具备显式 Register/Commit 语义的 Domain IUnitOfWork；事务默认关闭。 |
 | In-process IEvent / IEventHandler | Optional process-local event dispatch. / 可选的进程内事件分发。 | Keep separate from durable broker delivery; document failure and ordering semantics. / 与持久化消息投递分离，并明确失败与顺序语义。 |
 | CAP / MassTransit / MQ | Durable cross-process messaging, retries, acknowledgements, and eventual consistency. / 跨进程可靠消息、重试、确认和最终一致性。 | Evaluate Node broker libraries and Outbox/Inbox support before selecting providers. / 选型前评估 Node 消息库及 Outbox/Inbox 支持。 |
 | Redis / HybridCache-like behavior | Cache, optional multi-level cache, and distributed coordination where justified. / 缓存、可选多级缓存，以及有充分理由时的分布式协调。 | Define use-case-oriented contracts; do not expose Redis commands as the framework API. / 按使用场景定义契约，不把 Redis 命令直接暴露为框架 API。 |
@@ -386,9 +386,9 @@ MikroORM 7.2 documents a first-class Kysely integration through `EntityManager.g
 
 MikroORM 7.2 文档提供了通过 `EntityManager.getKysely()` 使用 Kysely 的一等集成。在同一个 EntityManager 的显式事务活动期间执行 Kysely 操作，会使用该事务上下文；没有事务上下文的 Fork EntityManager 则会使用连接池。这有望成为参考框架中 Dapper 风格原生 SQL 访问在 Node 技术栈中的对应方案，并避免再独立管理第二条连接。
 
-A MySQL integration case now stages a Trade through the Repository, flushes ORM DML inside the open transaction, inserts a test-only audit row through Kysely, rolls back, and verifies from a fresh EntityManager that both writes are absent. This test is added but has not been run.
+The POC now separates query-only Repository behavior from Unit of Work registration. Register methods stage aggregate intent in memory; Commit performs mapping and ORM flush. The explicit-transaction rollback probe verifies that registered changes are discarded before Commit and that independent Kysely work in the same scope is rolled back. This test is added but has not been run.
 
-现已增加 MySQL 集成测试：通过 Repository 暂存 Trade，在已开启事务内 Flush ORM DML，再通过 Kysely 插入仅供测试的审计记录，随后回滚，并使用全新 EntityManager 验证两类写入均不存在。该测试已加入但尚未运行。
+POC 现已将只读查询 Repository 与 Unit of Work 变更登记分离。Register 方法只在内存中登记聚合意图；Commit 才执行映射和 ORM Flush。显式事务回滚探针验证 Commit 前登记的变更可以被丢弃，并验证同一 Scope 中独立执行的 Kysely 操作会随事务回滚。该测试已加入但尚未运行。
 
 ### Explicitly deferred / 明确暂缓
 
@@ -398,15 +398,15 @@ REQUIRED 传播、加入调用方事务、嵌套 Savepoint 策略、Transactiona
 
 ### Verification status / 验证状态
 
-An opt-in MySQL integration case has been added for the Repository/Unit of Work path. No typecheck, unit test, or MySQL test has been executed in the current environment. All new adapter behavior remains pending local verification against the disposable `aspros_trade_poc` database.
+Opt-in MySQL integration cases have been updated for query-only Repository and Register/Commit Unit of Work semantics. No typecheck, unit test, or MySQL test has been executed in the current environment. All adapter behavior remains pending local verification against the disposable `aspros_trade_poc` database.
 
-已增加 Repository/Unit of Work 路径的可选 MySQL 集成测试。本环境尚未执行类型检查、单元测试或 MySQL 测试。所有新适配器行为仍待在一次性 `aspros_trade_poc` 数据库上进行本地验证。
+已更新只读 Repository 与 Register/Commit Unit of Work 语义的可选 MySQL 集成测试。本环境尚未执行类型检查、单元测试或 MySQL 测试。所有适配器行为仍待在一次性 `aspros_trade_poc` 数据库上进行本地验证。
 
 ## 10.4 Transaction Propagation Policy / 事务传播策略
 
-The current `TradePersistenceScope` is an explicitly owned top-level transaction. It is the transaction root for a REQUIRED operation, not a general-purpose nested transaction abstraction. A method that joins an existing transaction must reuse the same Unit of Work/EntityManager; it must not create a second top-level scope and accidentally commit independently.
+The current `TradePersistenceScope` forks an isolated EntityManager but does not open a transaction. A transaction is opened only when `beginTransaction()` is explicitly called on its Unit of Work. This keeps the default persistence lifecycle aligned with Register → Commit while allowing multiple operations to share one owned transaction when required.
 
-当前 `TradePersistenceScope` 是显式拥有顶层事务的 Scope。它是 REQUIRED 操作的事务根节点，不是通用嵌套事务抽象。需要加入现有事务的方法必须复用同一个 Unit of Work/EntityManager，不得创建第二个顶层 Scope 并意外独立提交。
+当前 `TradePersistenceScope` 只 Fork 隔离的 EntityManager，不会自动开启事务。只有在 Unit of Work 上显式调用 `beginTransaction()` 才会开启事务。默认生命周期因此符合 Register → Commit，同时允许有需要时让多个操作共享一个由当前 Unit of Work 拥有的事务。
 
 ### Initial propagation policy / 首版传播策略
 
@@ -428,15 +428,15 @@ The current `TradePersistenceScope` is an explicitly owned top-level transaction
 
 The Domain `IUnitOfWork` remains deliberately small and persistence-neutral (`commit/rollback`). A future Application transaction orchestration port may define propagation when Application work begins; the Infrastructure implementation can then use MikroORM's explicit propagation options. Do not add MikroORM enums, EntityManager, transaction handles, or Node async-context APIs to Domain.
 
-Domain 的 `IUnitOfWork` 有意保持精简且与持久化技术无关（`commit/rollback`）。未来进入 Application 阶段时，再由应用事务编排端口定义传播策略；Infrastructure 实现届时可使用 MikroORM 显式传播选项。不得向 Domain 添加 MikroORM 枚举、EntityManager、事务句柄或 Node 异步上下文 API。
+Domain 的 `IUnitOfWork` 保持持久化技术无关，并采用显式 Register/Commit 语义：`registerNew`、`registerDirty`、`registerDeleted`、`beginTransaction`、`commit`、`rollback` 和 `hasActiveTransaction`。Register 方法只在内存中登记意图；Commit 才执行真正的持久化。默认不显式开启事务。不得向 Domain 添加 MikroORM 枚举、EntityManager、事务句柄或 Node 异步上下文 API。
 
 MikroORM 7.2 defaults differ by API: `em.transactional()` defaults to NESTED while `@Transactional()` defaults to REQUIRED. Any adapter must specify propagation explicitly rather than rely on API defaults. A failed transaction detaches managed objects without rewinding their in-memory state; recovery must use a fresh EntityManager and reloaded aggregates.
 
 MikroORM 7.2 不同 API 的默认值不同：`em.transactional()` 默认 NESTED，而 `@Transactional()` 默认 REQUIRED。任何适配器都必须显式指定传播策略，不得依赖 API 默认值。事务失败会使托管对象脱离上下文，但不会还原其内存状态；恢复时必须使用新的 EntityManager 并重新加载聚合。
 
-The current POC continues to implement only one top-level owner. It intentionally does not implement nested scopes, REQUIRES_NEW, or an implicit ambient transaction context.
+The current POC implements one explicitly owned transaction per Unit of Work and does not implement nested scopes, REQUIRES_NEW, or an implicit ambient transaction context. A scope without `beginTransaction()` is non-transactional at the business-operation level; MikroORM may still wrap its single flush in an internal transaction.
 
-当前 POC 继续只实现一个顶层事务所有者；刻意不实现嵌套 Scope、REQUIRES_NEW 或隐式环境事务上下文。
+当前 POC 每个 Unit of Work 最多拥有一个显式事务，不实现嵌套 Scope、REQUIRES_NEW 或隐式环境事务上下文。未调用 `beginTransaction()` 的 Scope 在业务操作层面不显式开启事务；MikroORM 仍可能为单次 Flush 使用内部事务。
 
 ## 10.5 Migration and Runtime Lifecycle Policy / Migration 与运行时生命周期策略
 
@@ -501,7 +501,7 @@ This is a business-code layering convention and does not require every framework
 
 **New finding / 新发现：** direct ORM hydration of the current Domain classes is not the preferred approach. The POC will map separate MikroORM persistence records to and from Domain objects by calling public Domain constructors and legal state-transition methods. / 不建议让 ORM 直接还原当前 Domain 类。POC 将使用独立 MikroORM 持久化记录，通过调用 Domain 公共构造函数和合法状态转换方法完成双向映射。
 
-**Next / 下一步：** once the local Docker environment is ready, verify the current POC typecheck, mapping tests, MySQL persistence, Repository update path, Kysely transaction sharing and failure lifecycle. After the evidence is available, implement and test the REQUIRED/NESTED/REQUIRES_NEW transaction orchestration in a separate adapter layer, then evaluate the migration runner and runtime lifecycle before promoting anything into production Infrastructure. / 本地 Docker 环境准备好后，验证当前 POC 类型检查、映射测试、MySQL 持久化、Repository 更新路径、Kysely 事务共享和失败生命周期。取得验证证据后，再在独立适配器层实现并测试 REQUIRED/NESTED/REQUIRES_NEW 事务编排，随后评估 Migration Runner 和运行时生命周期，再考虑将能力提升到正式 Infrastructure。
+**Next / 下一步：** after the local Docker environment is ready, verify the revised Register/Commit POC, including default non-transactional scope, explicit transaction rollback, new/dirty/deleted registration behavior, mapping and MySQL persistence. Then continue with migration runner and runtime lifecycle evaluation before promoting anything into production Infrastructure. / 本地 Docker 环境准备好后，验证修订后的 Register/Commit POC，包括默认不显式开启事务、显式事务回滚、新增/修改/删除登记行为、映射和 MySQL 持久化。之后再继续评估 Migration Runner 和运行时生命周期，最后才考虑提升到正式 Infrastructure。
 
 Application remains deferred until required Infrastructure capabilities have working implementations and verification evidence.
 

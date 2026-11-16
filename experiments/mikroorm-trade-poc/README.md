@@ -75,31 +75,25 @@ Schema DDL 刻意以小型、可审查的 POC 脚本提供，不代表生产 Mig
 
 ## Repository and Unit of Work POC / Repository 与 Unit of Work 验证
 
-The POC now includes `MikroOrmTradeRepository` and `MikroOrmTradeUnitOfWork`. Create a scope from the root EntityManager; the scope forks a fresh identity map, begins one top-level transaction, and exposes a repository sharing that manager.
+The Repository is query-only. It restores complete Domain aggregates but does not expose save/add/update/delete methods. Persistence changes are explicitly registered with the Unit of Work.
 
-POC 现已包含 `MikroOrmTradeRepository` 和 `MikroOrmTradeUnitOfWork`。从 Root EntityManager 创建 Scope；Scope 会 Fork 一个全新的 Identity Map，开启一个顶层事务，并提供共享该管理器的 Repository。
+Repository 只负责查询。它还原完整 Domain 聚合，但不提供 save/add/update/delete 方法。持久化变更通过 Unit of Work 显式登记。
 
 ```ts
-const scope = await createTradePersistenceScope(orm.em);
-try {
-  const trade = await scope.tradeRepository.findById(tradeId);
-  // Apply domain behavior, then stage aggregate changes.
-  if (trade) await scope.tradeRepository.save(trade);
-  await scope.unitOfWork.commit();
-} catch (error) {
-  try { await scope.unitOfWork.rollback(); } catch { /* already closed */ }
-  throw error;
+const scope = await createTradePersistenceScope(orm.em); // no transaction is opened
+const trade = await scope.tradeRepository.findById(tradeId);
+if (trade) {
+  trade.confirmOrder(orderId);
+  scope.unitOfWork.registerDirty(trade);
 }
+await scope.unitOfWork.commit(); // the only persistence/save boundary
 ```
 
-The current scope owns its transaction and rejects a root EntityManager that is already in a transaction. REQUIRED/join-existing propagation is intentionally deferred. Repository `save` only stages changes; it never flushes or commits. It loads existing children, rejects omitted persisted children instead of silently deleting them, and rejects child-ID collisions across aggregates.
-
-当前 Scope 自己拥有事务，并拒绝传入已处于事务中的 Root EntityManager。REQUIRED/加入现有事务的传播语义暂缓实现。Repository 的 `save` 只暂存变更，不执行 Flush 或 Commit。它会加载已有子记录；若聚合快照遗漏已持久化子记录则明确报错，不会静默删除；也会拒绝跨聚合的子实体 ID 冲突。
-
-After a failed commit or rollback, the scope is unusable and its identity map is cleared. The caller must create a new scope and reload the aggregate; in-memory Domain objects are not rewound by database rollback. Domain events are not automatically cleared or published by this POC adapter.
-
-Commit 或 Rollback 失败后，Scope 不可继续使用，Identity Map 会被清空。调用方必须创建新 Scope 并重新加载聚合；数据库回滚不会回滚内存中的 Domain 对象。此 POC 适配器不会自动清空或发布领域事件。
-
+- `registerNew`, `registerDirty`, and `registerDeleted` only record intent in memory; they do not issue database writes. / `registerNew`、`registerDirty` 和 `registerDeleted` 只在内存中登记意图，不执行数据库写入。
+- `commit` maps registered aggregates to persistence records and flushes them. / `commit` 将已登记聚合映射为持久化记录并执行 Flush。
+- Transactions are disabled by default. Call `beginTransaction()` when several operations must share an explicit transaction; the same Unit of Work owns its commit/rollback. / 事务默认关闭。多个操作需要共享显式事务时调用 `beginTransaction()`；同一个 Unit of Work 负责提交或回滚。
+- Without an explicit transaction, MikroORM may still use its own short transaction for one `flush()`. This does not create a transaction spanning multiple business operations. / 未显式开启事务时，MikroORM 仍可能为单次 `flush()` 使用内部短事务；这不等于跨多个业务操作的显式事务。
+- A failed commit makes the scope unusable. Create a new scope and reload aggregates; database rollback cannot rewind in-memory Domain objects. / Commit 失败后 Scope 不可复用。应创建新 Scope 并重新加载聚合；数据库回滚无法还原内存中的 Domain 对象。
 
 ## Same-Transaction SQL / 同事务原生 SQL
 
@@ -127,9 +121,9 @@ The framework-level policy is:
 - `REQUIRES_NEW`: independent transaction and connection while the outer transaction is suspended. Use sparingly; pool exhaustion and lock contention are possible when outer transactions hold connections. / `REQUIRES_NEW`：挂起外层事务期间，使用独立事务和连接。应谨慎使用；外层事务持有连接时可能导致连接池耗尽或锁竞争。
 - `SUPPORTS`, `NOT_SUPPORTED`, and `NEVER` are not part of the first framework contract. `MANDATORY` may be represented as an assertion that an active Unit of Work exists, rather than a separate transaction implementation. / 首版框架契约不包含 `SUPPORTS`、`NOT_SUPPORTED` 和 `NEVER`。`MANDATORY` 可以表示为“必须存在活动 Unit of Work”的断言，而不必另造事务实现。
 
-The Domain `IUnitOfWork` remains persistence-neutral and exposes only `commit/rollback`. Transaction propagation belongs to an outer application orchestration contract (to be designed when Application is started) and its Infrastructure adapter; it must not leak MikroORM types into Domain. The current POC intentionally implements only the top-level owner. Nested and independent scopes are deferred until dedicated tests can verify their semantics.
+The Domain `IUnitOfWork` remains persistence-neutral: it exposes registration, `beginTransaction`, `commit`, `rollback`, and an active-transaction indicator. Registration is in-memory only; `commit` is the actual save boundary. Transactions are opt-in. Transaction propagation beyond one explicitly owned scope remains deferred until dedicated tests can verify its semantics.
 
-Domain 的 `IUnitOfWork` 继续保持持久化技术无关，只暴露 `commit/rollback`。事务传播属于外层应用编排契约（待 Application 阶段设计）及其 Infrastructure 适配器，不应把 MikroORM 类型泄漏到 Domain。当前 POC 只实现顶层事务所有者；嵌套和独立事务 Scope 暂缓，直到有专门测试验证其语义。
+Domain 的 `IUnitOfWork` 继续保持持久化技术无关：暴露变更登记、`beginTransaction`、`commit`、`rollback` 和活动事务状态。登记只在内存中进行；`commit` 才是真正的保存边界。事务默认关闭。超出单一显式事务 Scope 的传播语义仍暂缓，直到有专门测试验证。
 
 ### Migration policy / Migration 策略
 

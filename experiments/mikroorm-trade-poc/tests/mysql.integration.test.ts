@@ -105,7 +105,7 @@ describe.skipIf(!clientUrl)("MikroORM MySQL Trade persistence", () => {
 
     try {
       const writeScope = await createTradePersistenceScope(orm.em);
-      await writeScope.tradeRepository.save(aggregate);
+      writeScope.unitOfWork.registerNew(aggregate);
       await writeScope.unitOfWork.commit();
 
       const readScope = await createTradePersistenceScope(orm.em);
@@ -132,7 +132,7 @@ describe.skipIf(!clientUrl)("MikroORM MySQL Trade persistence", () => {
   });
 
 
-  it("rolls back ORM and Kysely writes in the same transaction", async () => {
+  it("discards registered changes and rolls back explicit SQL work", async () => {
     const orm = await ormPromise;
     const idBase = randomInt(100, 1_000_000_000);
     const tradeId = idBase;
@@ -145,17 +145,13 @@ describe.skipIf(!clientUrl)("MikroORM MySQL Trade persistence", () => {
     const scope = await createTradePersistenceScope(orm.em);
 
     try {
-      await scope.tradeRepository.save(aggregate);
-      // Flush sends ORM DML but does not commit the explicitly opened transaction.
-      // Flush 会执行 ORM DML，但不会提交显式开启的事务。
-      await scope.entityManager.flush();
-
+      await scope.unitOfWork.beginTransaction();
+      scope.unitOfWork.registerNew(aggregate);
       await scope.entityManager
         .getKysely<PocAuditDatabase>()
         .insertInto("poc_audit")
         .values({ id: auditId, trade_id: tradeId, message: "rollback probe" })
         .execute();
-
       await scope.unitOfWork.rollback();
     } catch (error) {
       try { await scope.unitOfWork.rollback(); } catch { /* Scope is already closed. */ }
@@ -178,7 +174,7 @@ describe.skipIf(!clientUrl)("MikroORM MySQL Trade persistence", () => {
   });
 
 
-  it("updates an existing aggregate and appends a Refund through the Repository", async () => {
+  it("updates an existing aggregate and appends a Refund through Unit of Work registration", async () => {
     const orm = await ormPromise;
     const idBase = randomInt(100, 1_000_000_000);
     const tradeId = idBase;
@@ -187,9 +183,8 @@ describe.skipIf(!clientUrl)("MikroORM MySQL Trade persistence", () => {
 
     try {
       const createScope = await createTradePersistenceScope(orm.em);
-      await createScope.tradeRepository.save(
-        new Trade(tradeId, [new Order(orderId, "Mechanical Keyboard", 1, 9900)]),
-      );
+      const created = new Trade(tradeId, [new Order(orderId, "Mechanical Keyboard", 1, 9900)]);
+      createScope.unitOfWork.registerNew(created);
       await createScope.unitOfWork.commit();
 
       const updateScope = await createTradePersistenceScope(orm.em);
@@ -203,7 +198,7 @@ describe.skipIf(!clientUrl)("MikroORM MySQL Trade persistence", () => {
         eventId: `poc-${refundId}`,
         occurredAt: new Date("2026-01-01T00:00:00.000Z"),
       });
-      await updateScope.tradeRepository.save(aggregate!);
+      updateScope.unitOfWork.registerDirty(aggregate!);
       await updateScope.unitOfWork.commit();
 
       const verifyScope = await createTradePersistenceScope(orm.em);

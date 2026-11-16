@@ -1,41 +1,90 @@
 import type { EntityManager } from "@mikro-orm/mysql";
 import type { IUnitOfWork } from "../../../packages/domain/src/index.js";
+import type { Trade } from "../../../packages/domain/examples/simple/trade.js";
 import { MikroOrmTradeRepository } from "./trade-repository.js";
+import { MikroOrmTradePersistenceWriter } from "./trade-persistence-writer.js";
 
-/** Lifecycle states for one isolated persistence context. / 单个隔离持久化上下文的生命周期状态。 */
+type ChangeKind = "new" | "dirty" | "deleted";
 type UnitOfWorkState = "active" | "committed" | "rolled-back" | "failed";
 
+interface RegisteredChange {
+  readonly aggregate: Trade;
+  kind: ChangeKind;
+}
+
 /**
- * Explicit transaction owner for the isolated Trade POC.
- * 独立 Trade POC 的显式事务所有者。
+ * One isolated persistence context with opt-in transaction ownership.
+ * 一个隔离的持久化上下文，事务由调用方选择性开启。
  *
- * A failed commit or rollback makes this Unit of Work unusable. Its identity map
- * is cleared; callers must create a new scope and reload aggregates.
- * Commit 或 Rollback 失败后，此 Unit of Work 不可继续使用，并会清空 Identity Map；
- * 调用方必须创建新的 Scope 并重新加载聚合。
+ * Register only records intent. Commit maps and flushes all changes.
+ * Register 只登记意图；Commit 才映射并 Flush 全部变更。
  */
 export class MikroOrmTradeUnitOfWork implements IUnitOfWork {
   private state: UnitOfWorkState = "active";
+  private readonly changes = new Map<number, RegisteredChange>();
+  private ownsTransaction = false;
+  private readonly writer: MikroOrmTradePersistenceWriter;
 
-  public constructor(private readonly em: EntityManager) {}
+  public constructor(private readonly em: EntityManager) {
+    this.writer = new MikroOrmTradePersistenceWriter(em);
+  }
+
+  public get hasActiveTransaction(): boolean {
+    return this.ownsTransaction && this.em.isInTransaction();
+  }
+
+  public registerNew<TEntity>(entity: TEntity): void {
+    this.register(entity, "new");
+  }
+
+  public registerDirty<TEntity>(entity: TEntity): void {
+    this.register(entity, "dirty");
+  }
+
+  public registerDeleted<TEntity>(entity: TEntity): void {
+    this.register(entity, "deleted");
+  }
+
+  public async beginTransaction(): Promise<void> {
+    this.assertActive();
+    if (this.ownsTransaction && this.em.isInTransaction()) return;
+    if (this.em.isInTransaction()) {
+      throw new Error("The EntityManager is already in a transaction not owned by this Unit of Work.");
+    }
+    await this.em.begin();
+    this.ownsTransaction = true;
+  }
 
   public async commit(): Promise<void> {
     this.assertActive();
     try {
-      await this.em.commit();
+      for (const change of this.changes.values()) {
+        if (change.kind === "new") await this.writer.persistNew(change.aggregate);
+        else if (change.kind === "dirty") await this.writer.persistDirty(change.aggregate);
+        else await this.writer.persistDeleted(change.aggregate);
+      }
+
+      // This is the only point where registered Domain changes reach the database.
+      // 只有在此处，已登记的领域变更才会真正写入数据库。
+      await this.em.flush();
+
+      if (this.ownsTransaction && this.em.isInTransaction()) {
+        await this.em.commit();
+      }
       this.state = "committed";
     } catch (error) {
       this.state = "failed";
-      if (this.em.isInTransaction()) {
+      if (this.ownsTransaction && this.em.isInTransaction()) {
         try {
           await this.em.rollback();
         } catch {
-          // Preserve the original commit/flush error; the context is discarded below.
-          // 保留原始 Commit/Flush 错误；下方会丢弃当前上下文。
+          // Preserve the original persistence error.
+          // 保留原始持久化错误。
         }
       }
       throw error;
     } finally {
+      this.changes.clear();
       this.em.clear();
     }
   }
@@ -43,29 +92,58 @@ export class MikroOrmTradeUnitOfWork implements IUnitOfWork {
   public async rollback(): Promise<void> {
     this.assertActive();
     try {
-      if (this.em.isInTransaction()) await this.em.rollback();
+      if (this.ownsTransaction && this.em.isInTransaction()) {
+        await this.em.rollback();
+      }
       this.state = "rolled-back";
     } catch (error) {
       this.state = "failed";
       throw error;
     } finally {
+      this.changes.clear();
       this.em.clear();
     }
+  }
+
+  private register<TEntity>(entity: TEntity, kind: ChangeKind): void {
+    this.assertActive();
+    if (!(entity instanceof Object) || !("id" in entity) || typeof entity.id !== "number") {
+      throw new TypeError("The Trade POC Unit of Work accepts Trade aggregates with numeric IDs only.");
+    }
+
+    const aggregate = entity as Trade;
+    const existing = this.changes.get(aggregate.id);
+    if (!existing) {
+      this.changes.set(aggregate.id, { aggregate, kind });
+      return;
+    }
+    if (existing.aggregate !== aggregate) {
+      throw new Error(`A different Trade instance with id ${aggregate.id} is already registered.`);
+    }
+
+    // Normalize repeated registration without losing the original insert intent.
+    // 合并重复登记，同时保留最初的新增意图。
+    if (existing.kind === "new" && kind === "deleted") {
+      this.changes.delete(aggregate.id);
+      return;
+    }
+    if (existing.kind === "new" || existing.kind === "deleted") return;
+    existing.kind = kind;
   }
 
   private assertActive(): void {
     if (this.state !== "active") {
       throw new Error(`Unit of Work is ${this.state} and cannot be used again.`);
     }
-    if (!this.em.isInTransaction()) {
+    if (this.ownsTransaction && !this.em.isInTransaction()) {
       this.state = "failed";
       this.em.clear();
-      throw new Error("Unit of Work lost its transaction and cannot be used again.");
+      throw new Error("Unit of Work lost its explicit transaction and cannot be used again.");
     }
   }
 }
 
-/** A scoped repository/UoW pair sharing one EntityManager and transaction. / 共享同一 EntityManager 与事务的 Scope。 */
+/** A query repository and Unit of Work sharing one forked EntityManager. / 共享同一个 Fork EntityManager 的查询仓储与工作单元。 */
 export interface TradePersistenceScope {
   readonly entityManager: EntityManager;
   readonly tradeRepository: MikroOrmTradeRepository;
@@ -73,30 +151,17 @@ export interface TradePersistenceScope {
 }
 
 /**
- * Create a fresh EntityManager and begin an owned top-level transaction.
- * 创建全新的 EntityManager，并开启由此 Scope 拥有的顶层事务。
- *
- * Nested/join-existing propagation is deliberately not implemented in this
- * first adapter. Passing a manager already inside a transaction is rejected
- * rather than accidentally creating an independent transaction.
- * 首版适配器刻意不实现嵌套/加入现有事务的传播语义。若传入的管理器已处于事务中，
- * 将直接拒绝，而不是意外创建独立事务。
+ * Create a fresh EntityManager without opening a transaction.
+ * 创建全新的 EntityManager，但不自动开启事务。
  */
 export async function createTradePersistenceScope(
   rootEntityManager: EntityManager,
 ): Promise<TradePersistenceScope> {
   if (rootEntityManager.isInTransaction()) {
-    throw new Error("Cannot create a top-level Trade Unit of Work from an EntityManager already in a transaction.");
+    throw new Error("Cannot create a Trade Unit of Work from an EntityManager already in a transaction.");
   }
 
   const em = rootEntityManager.fork({ clear: true });
-  try {
-    await em.begin();
-  } catch (error) {
-    em.clear();
-    throw error;
-  }
-
   const unitOfWork = new MikroOrmTradeUnitOfWork(em);
   return {
     entityManager: em,

@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS orders (
   status ENUM('pending', 'confirmed', 'refunded') NOT NULL,
   PRIMARY KEY (id),
   KEY idx_orders_trade_id (trade_id),
+  UNIQUE KEY uq_orders_id_trade_id (id, trade_id),
   CONSTRAINT fk_orders_trade
     FOREIGN KEY (trade_id) REFERENCES trades (id)
 ) ENGINE=InnoDB;
@@ -33,6 +34,6 @@ CREATE TABLE IF NOT EXISTS refunds (
   KEY idx_refunds_trade_id (trade_id),
   CONSTRAINT fk_refunds_trade
     FOREIGN KEY (trade_id) REFERENCES trades (id),
-  CONSTRAINT fk_refunds_order
-    FOREIGN KEY (order_id) REFERENCES orders (id)
+  CONSTRAINT fk_refunds_order_trade
+    FOREIGN KEY (order_id, trade_id) REFERENCES orders (id, trade_id)
 ) ENGINE=InnoDB;

@@ -18,13 +18,14 @@ export interface TradePocOrmOptions {
  */
 export async function createTradePocOrm(
   options: TradePocOrmOptions,
-): Promise<MikroORM> {
+) {
   const connection = new URL(options.clientUrl);
   if (connection.protocol !== "mysql:") {
     throw new TypeError("Trade POC requires a mysql:// connection URL.");
   }
-  if (!connection.pathname || connection.pathname === "/") {
-    throw new TypeError("Trade POC connection URL must name a dedicated database.");
+  const databaseName = decodeURIComponent(connection.pathname.slice(1));
+  if (databaseName !== "aspros_trade_poc") {
+    throw new TypeError("Trade POC may connect only to the dedicated aspros_trade_poc database.");
   }
 
   return MikroORM.init({

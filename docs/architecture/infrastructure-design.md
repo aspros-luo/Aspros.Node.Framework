@@ -294,6 +294,60 @@ MikroORM is not approved as the framework's default provider until all checks pa
 11. **Lifecycle / 生命周期** — Verify connection pool startup, failure cleanup, graceful shutdown and `orm.close()`. / 验证连接池启动、失败清理、优雅关闭和 `orm.close()`。
 12. **Example/evidence / 示例与证据** — Add a bilingual real-adapter example and record actual unit/integration results; static review alone is not acceptance. / 增加双语真实适配器示例并记录实际测试结果；静态审查不算验收。
 
+## 10.1 Trade Hydration Finding and Mapping Decision / Trade 还原发现与映射决策
+
+The first concrete review of the existing Domain example reveals that directly mapping the current Domain classes as MikroORM managed entities is not a safe default.
+
+对现有 Domain 示例进行首次具体审查后发现：不能默认将当前 Domain 类直接映射为 MikroORM 托管实体。
+
+### Why direct mapping is risky / 直接映射的风险
+
+- MikroORM 7.2 does not invoke constructors when hydrating managed entities by default. Its `forceEntityConstructor` option exists for cases such as native JavaScript private fields, but constructor invocation must be compatible with ORM hydration. / MikroORM 7.2 默认在还原托管实体时不调用构造函数。它提供 `forceEntityConstructor` 以支持原生 JavaScript 私有字段等场景，但构造函数必须能够兼容 ORM 还原过程。
+- The current `Trade` constructor requires an ID and initialized Order/Refund arrays. The current `Order` constructor requires product and pricing data. These constructors are domain creation APIs, not parameterless persistence hydrators. / 当前 `Trade` 构造函数要求 ID 及初始化后的 Order/Refund 数组；`Order` 构造函数要求商品和价格数据。这些构造函数是领域创建 API，不是无参持久化还原器。
+- `AggregateRoot` initializes its pending-event collection and aggregate-root brand as class fields. Bypassing constructors/field initializers can leave those runtime members absent on a hydrated instance. / `AggregateRoot` 通过类字段初始化器创建待处理事件集合和聚合根标记。绕过构造函数/字段初始化器，可能导致还原实例缺失这些运行时成员。
+- `Order.currentStatus` is private and is not accepted as constructor input. Hydration must not bypass the domain state-transition rules merely to assign a stored status. / `Order.currentStatus` 是私有状态，构造函数也不接收该值。不能为了写入数据库状态，就绕过领域状态转换规则直接赋值。
+
+### Decision / 决策
+
+**The POC will use separate persistence records and explicit mapping; it will not register the existing Domain classes as MikroORM entities.**
+
+**POC 使用独立的持久化记录模型并进行显式映射；不把现有 Domain 类注册为 MikroORM Entity。**
+
+The intended flow is:
+
+预期流程：
+
+```text
+MySQL rows
+    ↓
+MikroORM persistence records
+    ↓ explicit reconstitution through Domain constructors and behaviors
+Domain aggregate (Trade / Order / Refund)
+    ↓ explicit mapping
+MikroORM persistence records
+    ↓
+MySQL rows
+```
+
+This is an Infrastructure anti-corruption mapping, not a second Domain model. Persistence records describe storage shape and relations; Domain classes continue to own identity, state transitions, invariants and domain events. Do not add ORM decorators, ORM base classes, or persistence-specific constructors to Domain.
+
+这是 Infrastructure 内部的防腐映射，不是再造一套 Domain 模型。持久化记录描述存储结构和关系；Domain 类继续拥有身份、状态转换、不变量和领域事件。不得向 Domain 添加 ORM Decorator、ORM 基类或持久化专用构造函数。
+
+### Required mapping behavior / 映射行为要求
+
+1. Loading Trade must eagerly load all Order and Refund data required by current aggregate behavior. / 加载 Trade 时必须加载当前聚合行为所需的全部 Order 和 Refund 数据。
+2. Rebuild Order status by replaying valid domain transitions from the initial state (pending → confirmed → refunded), not by writing private fields. / Order 状态必须从初始状态通过合法领域转换还原（pending → confirmed → refunded），不得直接写私有字段。
+3. Rebuild Trade through its public constructor so the aggregate brand and pending-event collection are initialized. / 通过 Trade 公共构造函数重建聚合，确保聚合根标记和待处理事件集合完成初始化。
+4. A loaded aggregate starts with no pending events; historical events are not re-emitted during hydration. / 加载后的聚合不应携带待处理事件；历史事件不得在还原时重新发出。
+5. Saving must reconcile existing and new child records without deleting or duplicating records accidentally. / 保存时必须协调已有和新增子记录，避免意外删除或重复写入。
+6. If a persisted status cannot be reconstructed through valid domain behavior, fail loudly and treat it as corrupted/incompatible data. / 如果持久化状态无法通过合法领域行为还原，应明确失败，并将数据视为损坏或不兼容。
+
+### POC scope adjustment / POC 范围调整
+
+The first spike will prove Domain-to-record mapping and round-trip aggregate restoration before implementing the generic Repository/UoW API. This isolates the most important compatibility risk and avoids prematurely publishing an adapter contract.
+
+首轮技术验证先证明 Domain 与持久化记录之间的映射及聚合往返还原，再实现通用 Repository/UoW API。这样可以隔离最重要的兼容风险，避免过早发布适配器契约。
+
 ## 11. Current Result and Next Step / 当前结论与下一步
 
 **Audited / 已审计：** tracked .NET Database, Repository, UnitOfWork, Dapper and migration design files. Transaction ownership and Domain/Infrastructure boundary risks are recorded above.

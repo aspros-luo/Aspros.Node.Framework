@@ -10,7 +10,7 @@ This isolated experiment evaluates MikroORM 7.2.9 against the existing Domain Tr
 - Explicit bidirectional mapping between persistence records and Domain. / 持久化记录与 Domain 之间的显式双向映射。
 - MikroORM bootstrap with caller-supplied MySQL URL. / 使用调用方提供的 MySQL URL 启动 MikroORM。
 - An opt-in integration test that writes records and reloads them through a fresh EntityManager. / 可选的集成测试：写入记录后通过全新的 EntityManager 重新加载。
-- A Trade Repository adapter and an explicit top-level Unit of Work scope. / Trade Repository 适配器和显式顶层 Unit of Work Scope。
+- A query-only Trade Repository adapter and a Register/Commit Unit of Work scope with opt-in transactions. / 只读 Trade Repository 适配器，以及采用 Register/Commit 语义、事务可选开启的 Unit of Work Scope。
 - No automatic schema creation, update, drop, or migration. / 不自动创建、更新、删除或迁移 Schema。
 
 ## Object Boundaries / 对象边界

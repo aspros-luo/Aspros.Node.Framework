@@ -1,6 +1,6 @@
 import type { EntityManager } from "@mikro-orm/mysql";
 import type { IUnitOfWork } from "../../../packages/domain/src/index.js";
-import type { Trade } from "../../../packages/domain/examples/simple/trade.js";
+import { Trade } from "../../../packages/domain/examples/simple/trade.js";
 import { MikroOrmTradeRepository } from "./trade-repository.js";
 import { MikroOrmTradePersistenceWriter } from "./trade-persistence-writer.js";
 
@@ -107,11 +107,11 @@ export class MikroOrmTradeUnitOfWork implements IUnitOfWork {
 
   private register<TEntity>(entity: TEntity, kind: ChangeKind): void {
     this.assertActive();
-    if (!(entity instanceof Object) || !("id" in entity) || typeof entity.id !== "number") {
-      throw new TypeError("The Trade POC Unit of Work accepts Trade aggregates with numeric IDs only.");
+    if (!(entity instanceof Trade)) {
+      throw new TypeError("The Trade POC Unit of Work accepts Trade aggregate instances only.");
     }
 
-    const aggregate = entity as Trade;
+    const aggregate = entity;
     const existing = this.changes.get(aggregate.id);
     if (!existing) {
       this.changes.set(aggregate.id, { aggregate, kind });
@@ -121,14 +121,21 @@ export class MikroOrmTradeUnitOfWork implements IUnitOfWork {
       throw new Error(`A different Trade instance with id ${aggregate.id} is already registered.`);
     }
 
-    // Normalize repeated registration without losing the original insert intent.
-    // 合并重复登记，同时保留最初的新增意图。
-    if (existing.kind === "new" && kind === "deleted") {
-      this.changes.delete(aggregate.id);
+    // Normalize registration transitions while preserving aggregate lifecycle intent.
+    // 合并登记状态时保留聚合生命周期意图。
+    if (existing.kind === "new") {
+      if (kind === "deleted") this.changes.delete(aggregate.id);
       return;
     }
-    if (existing.kind === "new" || existing.kind === "deleted") return;
-    existing.kind = kind;
+    if (existing.kind === "deleted") {
+      if (kind !== "deleted") {
+        throw new Error(`Trade ${aggregate.id} is already registered for deletion.`);
+      }
+      return;
+    }
+    if (kind === "deleted") existing.kind = "deleted";
+    // Dirty followed by New remains Dirty; it must not become an insert.
+    // Dirty 后再次登记 New 仍保持 Dirty，不能错误地变成新增。
   }
 
   private assertActive(): void {

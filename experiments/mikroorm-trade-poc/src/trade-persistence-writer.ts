@@ -106,10 +106,12 @@ export class MikroOrmTradePersistenceWriter {
     const existingTrade = await this.em.findOne(TradeRecord, { id: aggregate.id });
     if (!existingTrade) return;
 
-    // Delete dependent rows explicitly to respect the POC foreign-key graph.
-    // 显式删除依赖记录，以遵守 POC 外键关系。
-    await this.em.nativeDelete(RefundRecord, { trade: aggregate.id });
-    await this.em.nativeDelete(OrderRecord, { trade: aggregate.id });
+    // Stage dependent removals in the same Unit of Work flush.
+    // 将依赖记录的删除也暂存到同一次 Unit of Work Flush 中。
+    const refunds = await this.em.find(RefundRecord, { trade: aggregate.id });
+    const orders = await this.em.find(OrderRecord, { trade: aggregate.id });
+    for (const refund of refunds) this.em.remove(refund);
+    for (const order of orders) this.em.remove(order);
     this.em.remove(existingTrade);
   }
 

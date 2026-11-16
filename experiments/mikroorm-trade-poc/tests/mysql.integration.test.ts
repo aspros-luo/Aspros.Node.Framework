@@ -105,7 +105,12 @@ describe.skipIf(!clientUrl)("MikroORM MySQL Trade persistence", () => {
 
     try {
       const writeScope = await createTradePersistenceScope(orm.em);
+      expect(writeScope.unitOfWork.hasActiveTransaction).toBe(false);
       writeScope.unitOfWork.registerNew(aggregate);
+      // Registration is memory-only: the aggregate is not queryable before Commit.
+      // Register 仅在内存中登记：Commit 前无法查询到该聚合。
+      expect(await writeScope.tradeRepository.findById(tradeId)).toBeNull();
+      expect(writeScope.unitOfWork.hasActiveTransaction).toBe(false);
       await writeScope.unitOfWork.commit();
 
       const readScope = await createTradePersistenceScope(orm.em);
@@ -131,6 +136,46 @@ describe.skipIf(!clientUrl)("MikroORM MySQL Trade persistence", () => {
     }
   });
 
+
+  it("deletes an aggregate only when Unit of Work commits a registered deletion", async () => {
+    const orm = await ormPromise;
+    const idBase = randomInt(100, 1_000_000_000);
+    const tradeId = idBase;
+    const orderId = idBase + 1;
+
+    const createScope = await createTradePersistenceScope(orm.em);
+    createScope.unitOfWork.registerNew(
+      new Trade(tradeId, [new Order(orderId, "Portable SSD", 1, 12900)]),
+    );
+    await createScope.unitOfWork.commit();
+
+    const deleteScope = await createTradePersistenceScope(orm.em);
+    try {
+      const aggregate = await deleteScope.tradeRepository.findById(tradeId);
+      expect(aggregate).not.toBeNull();
+      deleteScope.unitOfWork.registerDeleted(aggregate!);
+      expect(await deleteScope.tradeRepository.findById(tradeId)).not.toBeNull();
+      await deleteScope.unitOfWork.commit();
+    } finally {
+      const cleanup = orm.em.fork({ clear: true });
+      try {
+        await cleanup.nativeDelete(RefundRecord, { trade: tradeId });
+        await cleanup.nativeDelete(OrderRecord, { trade: tradeId });
+        await cleanup.nativeDelete(TradeRecord, { id: tradeId });
+      } finally {
+        cleanup.clear();
+      }
+    }
+
+    const verifier = orm.em.fork({ clear: true });
+    try {
+      expect(await verifier.count(TradeRecord, { id: tradeId })).toBe(0);
+      expect(await verifier.count(OrderRecord, { trade: tradeId })).toBe(0);
+      expect(await verifier.count(RefundRecord, { trade: tradeId })).toBe(0);
+    } finally {
+      verifier.clear();
+    }
+  });
 
   it("discards registered changes and rolls back explicit SQL work", async () => {
     const orm = await ormPromise;

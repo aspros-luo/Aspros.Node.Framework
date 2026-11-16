@@ -177,4 +177,56 @@ describe.skipIf(!clientUrl)("MikroORM MySQL Trade persistence", () => {
     }
   });
 
+
+  it("updates an existing aggregate and appends a Refund through the Repository", async () => {
+    const orm = await ormPromise;
+    const idBase = randomInt(100, 1_000_000_000);
+    const tradeId = idBase;
+    const orderId = idBase + 1;
+    const refundId = idBase + 2;
+
+    try {
+      const createScope = await createTradePersistenceScope(orm.em);
+      await createScope.tradeRepository.save(
+        new Trade(tradeId, [new Order(orderId, "Mechanical Keyboard", 1, 9900)]),
+      );
+      await createScope.unitOfWork.commit();
+
+      const updateScope = await createTradePersistenceScope(orm.em);
+      const aggregate = await updateScope.tradeRepository.findById(tradeId);
+      expect(aggregate).not.toBeNull();
+      aggregate!.confirmOrder(orderId);
+      aggregate!.refundOrder({
+        refundId,
+        orderId,
+        reason: "Changed my mind",
+        eventId: `poc-${refundId}`,
+        occurredAt: new Date("2026-01-01T00:00:00.000Z"),
+      });
+      await updateScope.tradeRepository.save(aggregate!);
+      await updateScope.unitOfWork.commit();
+
+      const verifyScope = await createTradePersistenceScope(orm.em);
+      try {
+        const restored = await verifyScope.tradeRepository.findById(tradeId);
+        expect(restored?.orders[0]?.status).toBe("refunded");
+        expect(restored?.refunds).toHaveLength(1);
+        expect(restored?.domainEvents).toHaveLength(0);
+        await verifyScope.unitOfWork.rollback();
+      } catch (error) {
+        try { await verifyScope.unitOfWork.rollback(); } catch { /* Scope is already closed. */ }
+        throw error;
+      }
+    } finally {
+      const cleanup = orm.em.fork({ clear: true });
+      try {
+        await cleanup.nativeDelete(RefundRecord, { trade: tradeId });
+        await cleanup.nativeDelete(OrderRecord, { trade: tradeId });
+        await cleanup.nativeDelete(TradeRecord, { id: tradeId });
+      } finally {
+        cleanup.clear();
+      }
+    }
+  });
+
 });

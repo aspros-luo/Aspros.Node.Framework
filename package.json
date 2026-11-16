@@ -12,7 +12,8 @@
     "typecheck": "pnpm --filter @aspros/domain --filter @aspros/infrastructure typecheck",
     "check": "pnpm typecheck && pnpm test && pnpm build",
     "poc:trade-mapping": "pnpm --filter @aspros/mikroorm-trade-poc test",
-    "poc:trade-mysql": "pnpm --filter @aspros/mikroorm-trade-poc test:mysql"
+    "poc:trade-mysql": "pnpm --filter @aspros/mikroorm-trade-poc test:mysql",
+    "poc:trade-typecheck": "pnpm --filter @aspros/mikroorm-trade-poc typecheck"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

@@ -1,4 +1,4 @@
-import type { EntityManager } from "@mikro-orm/core";
+import type { EntityManager } from "@mikro-orm/mysql";
 import type { IUnitOfWork } from "../../../packages/domain/src/index.js";
 import { MikroOrmTradeRepository } from "./trade-repository.js";
 

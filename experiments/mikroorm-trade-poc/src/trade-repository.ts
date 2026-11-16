@@ -1,4 +1,4 @@
-import type { EntityManager } from "@mikro-orm/core";
+import type { EntityManager } from "@mikro-orm/mysql";
 import type { IRepository } from "../../../packages/domain/src/index.js";
 import type { Trade } from "../../../packages/domain/examples/simple/trade.js";
 import { OrderRecord, RefundRecord, TradeRecord, type TradePersistenceSnapshot } from "./records.js";

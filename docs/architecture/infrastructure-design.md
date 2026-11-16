@@ -197,9 +197,9 @@ Each capability follows this sequence:
 
 ### 8.1 Important Audit Findings / 重要审计发现
 
-1. **The .NET Domain contract is less persistence-neutral than its description suggests.** `IRepository` exposes `IQueryable` and expression trees, and `IEntitySetProvider` lives in Domain. The Node Domain contract is deliberately narrower (`findById` and `save`); keep that decision and do not reintroduce ORM query types.
+1. **The .NET Domain contract is less persistence-neutral than its description suggests.** `IRepository` exposes `IQueryable` and expression trees, and `IEntitySetProvider` lives in Domain. The Node Domain contract is deliberately narrower: Repository exposes aggregate queries (`findById`), while Unit of Work explicitly registers new/dirty/deleted aggregates and persists them at Commit. Keep ORM query types out of Domain.
 
-   **.NET Domain 契约的持久化无关性弱于其描述。** `IRepository` 暴露 `IQueryable` 和表达式树，`IEntitySetProvider` 也位于 Domain。Node Domain 已有意收窄为 `findById` 和 `save`；应保留该决策，不要重新引入 ORM 查询类型。
+   **.NET Domain 契约的持久化无关性弱于其描述。** `IRepository` 暴露 `IQueryable` 和表达式树，`IEntitySetProvider` 也位于 Domain。Node Domain 已有意收窄：Repository 负责聚合查询（`findById`），Unit of Work 显式登记新增/修改/删除聚合，并在 Commit 时统一持久化。不要将 ORM 查询类型重新引入 Domain。
 
 2. **The .NET UoW has an ambiguous external-transaction case.** `HasActiveTransaction` considers both the DbContext and the UoW, but Commit only commits the UoW-owned field. Node must distinguish transaction owner, participant and committer.
 
@@ -246,8 +246,8 @@ Reasons / 原因：
 | Current Domain contract / 当前 Domain 契约 | Proposed adapter / 建议适配 |
 |---|---|
 | `IRepository.findById` | Load the aggregate and mapped state needed by its invariants through the scoped EntityManager. / 通过 Scoped EntityManager 加载聚合及其不变量所需状态。 |
-| `IRepository.save` | Register new aggregates; let the ORM Unit of Work track changes on loaded aggregates. / 登记新聚合；由 ORM UoW 跟踪已加载聚合的变更。 |
-| `IUnitOfWork.commit` | Candidate: call EntityManager `flush()`; verify inside and outside explicit transactions. / 候选：调用 EntityManager `flush()`；分别验证显式事务内外的行为。 |
+| `IUnitOfWork.registerNew/registerDirty/registerDeleted` | Stage aggregate persistence intent in memory; no database write occurs until Commit. / 在内存中登记聚合持久化意图；Commit 前不执行数据库写入。 |
+| `IUnitOfWork.commit` | Map and flush all registered changes; commit an explicitly owned transaction if one was opened. / 映射并 Flush 所有已登记变更；若显式开启了事务，则提交该事务。 |
 | `IUnitOfWork.rollback` | Abandon the current persistence context; roll back only a transaction owned by that scope. Do not claim object instances are restored. / 放弃当前持久化上下文；只回滚该范围拥有的事务，不声称对象实例已恢复。 |
 | Dapper-like API / Dapper 类 API | Add a small `IRawSqlExecutor` only when a real query requires it; adapt `EntityManager.execute` so it uses the active transaction. / 仅在真实查询需要时增加精简 `IRawSqlExecutor`；适配 `EntityManager.execute` 并确保复用活动事务。 |
 | Explicit multi-operation transaction / 多操作显式事务 | Use a callback-based transaction scope. The future Application layer owns its port; Infrastructure provides the MikroORM implementation. / 使用回调式事务范围；未来 Application 拥有端口，Infrastructure 提供 MikroORM 实现。 |
@@ -367,15 +367,15 @@ The isolated Trade POC now contains a concrete, Trade-specific implementation of
 
 ### Scope ownership / Scope 所有权
 
-- `createTradePersistenceScope(rootEntityManager)` forks a fresh EntityManager with a cleared identity map and begins one explicit top-level transaction. The returned Repository and Unit of Work share this same EntityManager. / `createTradePersistenceScope(rootEntityManager)` 会 Fork 一个 Identity Map 已清空的 EntityManager，并开启一个显式顶层事务。返回的 Repository 与 Unit of Work 共享该 EntityManager。
+- `createTradePersistenceScope(rootEntityManager)` forks a fresh EntityManager with a cleared identity map but does not begin a transaction. The returned Repository and Unit of Work share this same EntityManager. / `createTradePersistenceScope(rootEntityManager)` 会 Fork 一个 Identity Map 已清空的 EntityManager，但不会自动开启事务。返回的 Repository 与 Unit of Work 共享该 EntityManager。
 - The scope rejects a root EntityManager that is already in a transaction. It does not silently create an independent transaction when the caller may expect REQUIRED/join-existing behavior. / 若 Root EntityManager 已处于事务中，Scope 会拒绝创建；不会在调用方可能期待 REQUIRED/加入现有事务时，静默创建独立事务。
-- Commit flushes and commits through the EntityManager. Rollback rolls back the owned transaction. Both paths clear the identity map; a failed commit/rollback makes the scope unusable. / Commit 通过 EntityManager 执行 Flush 和 Commit；Rollback 回滚由 Scope 拥有的事务。两条路径都会清空 Identity Map；Commit/Rollback 失败后 Scope 不可继续使用。
+- Commit maps and flushes registered changes, then commits an explicitly owned transaction if present. Rollback discards registrations and rolls back only an explicitly owned transaction. Both paths clear the identity map; a failed commit/rollback makes the scope unusable. / Commit 映射并 Flush 已登记变更；若存在显式拥有的事务，再提交该事务。Rollback 丢弃登记，并且只回滚显式拥有的事务。两条路径都会清空 Identity Map；Commit/Rollback 失败后 Scope 不可继续使用。
 - A failed database transaction does not rewind mutated in-memory Domain objects. The caller must discard the scope and reload aggregates in a new one. / 数据库事务失败不会还原已变化的内存 Domain 对象。调用方必须丢弃当前 Scope，并在新 Scope 中重新加载聚合。
 
 ### Repository behavior / Repository 行为
 
 - `findById` loads Trade, all its Orders, and all its Refunds before invoking the explicit Domain mapper. / `findById` 会先加载 Trade、其全部 Order 和 Refund，再调用显式 Domain Mapper。
-- `save` requires an active Unit of Work transaction and only stages persistence changes; it never flushes or commits. / `save` 要求当前存在活动 Unit of Work 事务，只暂存持久化变更，不执行 Flush 或 Commit。
+- `registerNew`、`registerDirty` 和 `registerDeleted` 只在内存中登记变更，不要求活动事务，也不执行数据库写入。Commit 是唯一的持久化边界。 / `registerNew`、`registerDirty` 和 `registerDeleted` 只在内存中登记变更，不要求活动事务，也不执行数据库写入。Commit 是唯一的持久化边界。
 - Existing child rows are reconciled by ID. Because the current Domain example has no child-removal behavior, a persisted child omitted from the supplied aggregate causes an explicit consistency error instead of an implicit delete. / 已有子记录按 ID 协调。由于当前 Domain 示例没有子实体删除行为，若传入聚合遗漏已持久化子记录，会明确抛出一致性错误，而不是隐式删除。
 - New child IDs are checked for collisions. New/updated Refund records are linked to the managed Trade and Order records in the current identity map. / 新子实体 ID 会检查冲突；新增/更新的 Refund 会关联当前 Identity Map 中托管的 Trade 和 Order 记录。
 - The adapter does not yet implement optimistic concurrency/version columns, soft deletion, aggregate child removal, or generic repository composition. / 此适配器尚未实现乐观并发/版本列、软删除、聚合子实体删除或通用 Repository 组合。
@@ -412,7 +412,7 @@ The current `TradePersistenceScope` forks an isolated EntityManager but does not
 
 | Policy | Intended semantics | Decision |
 |---|---|---|
-| `REQUIRED` | Join an existing transaction or create the root transaction. Only the root owner commits/rolls back. | Default business policy; current POC covers root ownership only. |
+| `REQUIRED` | Join an existing transaction or create the root transaction. Only the root owner commits/rolls back. | Opt-in policy for operations that explicitly require a transaction; not the default Unit of Work behavior. |
 | `NESTED` | Savepoint on the same connection; inner rollback does not commit/rollback the outer transaction. | Advanced opt-in; defer implementation until identity-map and in-memory Domain state behavior are verified. |
 | `REQUIRES_NEW` | Suspend outer work and use an independent transaction/connection. | Advanced opt-in; use sparingly due to pool exhaustion and lock contention risks. |
 | `MANDATORY` | Require an active Unit of Work. | Can be a boundary assertion, not a new transaction implementation. |
@@ -420,13 +420,13 @@ The current `TradePersistenceScope` forks an isolated EntityManager but does not
 
 | 策略 | 目标语义 | 决策 |
 |---|---|---|
-| `REQUIRED` | 加入已有事务；若不存在则创建根事务。只有根事务所有者可以提交/回滚。 | 业务默认策略；当前 POC 仅覆盖根事务所有权。 |
+| `REQUIRED` | 加入已有事务；若不存在则创建根事务。只有根事务所有者可以提交/回滚。 | 仅供明确要求事务的操作选择使用，不是 Unit of Work 的默认行为。 |
 | `NESTED` | 在同一连接上创建 Savepoint；内层回滚不提交/回滚外层事务。 | 高级可选能力；Identity Map 和内存 Domain 状态行为验证前暂缓实现。 |
 | `REQUIRES_NEW` | 挂起外层工作，使用独立事务/连接。 | 高级可选能力；连接池耗尽与锁竞争风险意味着必须谨慎使用。 |
 | `MANDATORY` | 要求存在活动 Unit of Work。 | 可实现为边界断言，不需要新的事务实现。 |
 | `SUPPORTS`、`NOT_SUPPORTED`、`NEVER` | 可选的非事务传播模式。 | 不纳入首版框架契约。 |
 
-The Domain `IUnitOfWork` remains deliberately small and persistence-neutral (`commit/rollback`). A future Application transaction orchestration port may define propagation when Application work begins; the Infrastructure implementation can then use MikroORM's explicit propagation options. Do not add MikroORM enums, EntityManager, transaction handles, or Node async-context APIs to Domain.
+The Domain `IUnitOfWork` remains persistence-neutral and exposes explicit registration (`registerNew`, `registerDirty`, `registerDeleted`), `beginTransaction`, `commit`, `rollback`, and `hasActiveTransaction`. Register methods stage intent only; Commit performs persistence. Explicit transactions are disabled by default. A future Application transaction orchestration port may define propagation when Application work begins; do not add MikroORM enums, EntityManager, transaction handles, or Node async-context APIs to Domain.
 
 Domain 的 `IUnitOfWork` 保持持久化技术无关，并采用显式 Register/Commit 语义：`registerNew`、`registerDirty`、`registerDeleted`、`beginTransaction`、`commit`、`rollback` 和 `hasActiveTransaction`。Register 方法只在内存中登记意图；Commit 才执行真正的持久化。默认不显式开启事务。不得向 Domain 添加 MikroORM 枚举、EntityManager、事务句柄或 Node 异步上下文 API。
 

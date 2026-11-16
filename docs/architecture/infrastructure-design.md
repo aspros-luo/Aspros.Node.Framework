@@ -402,6 +402,68 @@ An opt-in MySQL integration case has been added for the Repository/Unit of Work 
 
 已增加 Repository/Unit of Work 路径的可选 MySQL 集成测试。本环境尚未执行类型检查、单元测试或 MySQL 测试。所有新适配器行为仍待在一次性 `aspros_trade_poc` 数据库上进行本地验证。
 
+## 10.4 Transaction Propagation Policy / 事务传播策略
+
+The current `TradePersistenceScope` is an explicitly owned top-level transaction. It is the transaction root for a REQUIRED operation, not a general-purpose nested transaction abstraction. A method that joins an existing transaction must reuse the same Unit of Work/EntityManager; it must not create a second top-level scope and accidentally commit independently.
+
+当前 `TradePersistenceScope` 是显式拥有顶层事务的 Scope。它是 REQUIRED 操作的事务根节点，不是通用嵌套事务抽象。需要加入现有事务的方法必须复用同一个 Unit of Work/EntityManager，不得创建第二个顶层 Scope 并意外独立提交。
+
+### Initial propagation policy / 首版传播策略
+
+| Policy | Intended semantics | Decision |
+|---|---|---|
+| `REQUIRED` | Join an existing transaction or create the root transaction. Only the root owner commits/rolls back. | Default business policy; current POC covers root ownership only. |
+| `NESTED` | Savepoint on the same connection; inner rollback does not commit/rollback the outer transaction. | Advanced opt-in; defer implementation until identity-map and in-memory Domain state behavior are verified. |
+| `REQUIRES_NEW` | Suspend outer work and use an independent transaction/connection. | Advanced opt-in; use sparingly due to pool exhaustion and lock contention risks. |
+| `MANDATORY` | Require an active Unit of Work. | Can be a boundary assertion, not a new transaction implementation. |
+| `SUPPORTS`, `NOT_SUPPORTED`, `NEVER` | Optional non-transactional propagation modes. | Excluded from the first framework contract. |
+
+| 策略 | 目标语义 | 决策 |
+|---|---|---|
+| `REQUIRED` | 加入已有事务；若不存在则创建根事务。只有根事务所有者可以提交/回滚。 | 业务默认策略；当前 POC 仅覆盖根事务所有权。 |
+| `NESTED` | 在同一连接上创建 Savepoint；内层回滚不提交/回滚外层事务。 | 高级可选能力；Identity Map 和内存 Domain 状态行为验证前暂缓实现。 |
+| `REQUIRES_NEW` | 挂起外层工作，使用独立事务/连接。 | 高级可选能力；连接池耗尽与锁竞争风险意味着必须谨慎使用。 |
+| `MANDATORY` | 要求存在活动 Unit of Work。 | 可实现为边界断言，不需要新的事务实现。 |
+| `SUPPORTS`、`NOT_SUPPORTED`、`NEVER` | 可选的非事务传播模式。 | 不纳入首版框架契约。 |
+
+The Domain `IUnitOfWork` remains deliberately small and persistence-neutral (`commit/rollback`). A future Application transaction orchestration port may define propagation when Application work begins; the Infrastructure implementation can then use MikroORM's explicit propagation options. Do not add MikroORM enums, EntityManager, transaction handles, or Node async-context APIs to Domain.
+
+Domain 的 `IUnitOfWork` 有意保持精简且与持久化技术无关（`commit/rollback`）。未来进入 Application 阶段时，再由应用事务编排端口定义传播策略；Infrastructure 实现届时可使用 MikroORM 显式传播选项。不得向 Domain 添加 MikroORM 枚举、EntityManager、事务句柄或 Node 异步上下文 API。
+
+MikroORM 7.2 defaults differ by API: `em.transactional()` defaults to NESTED while `@Transactional()` defaults to REQUIRED. Any adapter must specify propagation explicitly rather than rely on API defaults. A failed transaction detaches managed objects without rewinding their in-memory state; recovery must use a fresh EntityManager and reloaded aggregates.
+
+MikroORM 7.2 不同 API 的默认值不同：`em.transactional()` 默认 NESTED，而 `@Transactional()` 默认 REQUIRED。任何适配器都必须显式指定传播策略，不得依赖 API 默认值。事务失败会使托管对象脱离上下文，但不会还原其内存状态；恢复时必须使用新的 EntityManager 并重新加载聚合。
+
+The current POC continues to implement only one top-level owner. It intentionally does not implement nested scopes, REQUIRES_NEW, or an implicit ambient transaction context.
+
+当前 POC 继续只实现一个顶层事务所有者；刻意不实现嵌套 Scope、REQUIRES_NEW 或隐式环境事务上下文。
+
+## 10.5 Migration and Runtime Lifecycle Policy / Migration 与运行时生命周期策略
+
+### Migration / 数据库迁移
+
+- Migration is a release/deployment operation, never an implicit side effect of application startup. / Migration 是发布/部署操作，不是应用启动时的隐式副作用。
+- Generate schema differences in development, commit versioned migration files and snapshots, review SQL and data impact, then execute them in a dedicated serialized deployment step using least-privilege credentials. / 在开发环境生成 Schema 差异，提交版本化 Migration 文件和快照，审查 SQL 与数据影响，再通过独立、串行的部署步骤执行，并使用最小权限凭据。
+- MySQL DDL such as `CREATE TABLE`, `ALTER TABLE`, and `CREATE INDEX` implicitly commits the active transaction. Do not claim that a multi-statement DDL migration can be rolled back atomically. Prefer expand/contract changes, explicit data backfills, backups and forward-recovery plans. / MySQL 的 `CREATE TABLE`、`ALTER TABLE`、`CREATE INDEX` 等 DDL 会隐式提交当前事务。不能声称多语句 DDL Migration 可以原子回滚。应优先采用 Expand/Contract 变更、明确的数据回填、备份和向前修复方案。
+- MikroORM Schema Generator is development tooling. Generated SQL must be reviewed; `schema:update` and `schema:fresh` must never run against production. / MikroORM Schema Generator 是开发工具。生成 SQL 必须审查；绝不可在生产环境运行 `schema:update` 或 `schema:fresh`。
+- Migration execution must be observable and serialized per database/schema; do not let every application replica run migrations at startup. / Migration 执行必须可观测，并按数据库/Schema 串行化；不要让每个应用副本在启动时执行 Migration。
+
+The POC's hand-reviewed `schema.mysql.sql` is only a disposable database bootstrap and is not a production migration history.
+
+POC 中人工审查的 `schema.mysql.sql` 只用于一次性实验数据库初始化，不是生产 Migration 历史。
+
+### ORM/connection lifecycle / ORM 与连接生命周期
+
+- Initialize one ORM instance per process/database configuration. It owns the connection pool and metadata. / 每个进程/数据库配置初始化一个 ORM 实例，由它拥有连接池和元数据。
+- Fork an EntityManager/identity map per request or background job. Never share one mutable EntityManager across concurrent work. / 每个请求或后台任务 Fork 独立 EntityManager/Identity Map。绝不在并发任务间共享同一个可变 EntityManager。
+- A Unit of Work owns its forked context and transaction, not the process-wide pool. / Unit of Work 拥有自己的 Fork 上下文和事务，不拥有进程级连接池。
+- Graceful shutdown stops new work, drains active requests/jobs, settles active transactions, then closes the ORM/pool once. Forced close is an emergency path only. / 优雅关闭应先停止接收新任务，排空活动请求/后台任务，处理完活动事务，再统一关闭 ORM/连接池。强制关闭仅用于紧急情况。
+- Use database readiness checks separately from process liveness. Retry only whole operations that are safe to retry, and always use a fresh EntityManager after transaction failure. / 数据库 Readiness 与进程 Liveness 分开检查。仅重试安全且具备幂等性的完整操作；事务失败后始终使用新的 EntityManager。
+
+These lifecycle concerns belong to Node Infrastructure; Domain remains independent of Node APIs, connection pools and ORM types.
+
+这些生命周期职责属于 Node Infrastructure；Domain 不依赖 Node API、连接池或 ORM 类型。
+
 ## 10.3 Object Model Boundaries / 对象模型边界
 
 The framework distinguishes persistence records (DO), domain objects, application transfer models (DTO), and API view models (VO). These names describe different responsibilities; they are not interchangeable aliases for one shared class.
@@ -439,7 +501,7 @@ This is a business-code layering convention and does not require every framework
 
 **New finding / 新发现：** direct ORM hydration of the current Domain classes is not the preferred approach. The POC will map separate MikroORM persistence records to and from Domain objects by calling public Domain constructors and legal state-transition methods. / 不建议让 ORM 直接还原当前 Domain 类。POC 将使用独立 MikroORM 持久化记录，通过调用 Domain 公共构造函数和合法状态转换方法完成双向映射。
 
-**Next / 下一步：** complete the isolated POC design for transaction propagation, failure lifecycle, production migration strategy and adapter lifecycle while the local Docker environment is being prepared. The Kysely same-transaction probe is now present and awaits execution. Once available, run the typecheck, mapper tests and MySQL integration suite before promoting any adapter into the production Infrastructure package. / 在本地 Docker 环境准备期间，继续完善独立 POC 的事务传播、失败生命周期、生产 Migration 策略和适配器生命周期设计。Kysely 同事务验证已加入，等待实际执行。环境可用后，先运行类型检查、Mapper 测试和 MySQL 集成测试，再考虑将适配器提升到正式 Infrastructure package。
+**Next / 下一步：** once the local Docker environment is ready, verify the current POC typecheck, mapping tests, MySQL persistence, Repository update path, Kysely transaction sharing and failure lifecycle. After the evidence is available, implement and test the REQUIRED/NESTED/REQUIRES_NEW transaction orchestration in a separate adapter layer, then evaluate the migration runner and runtime lifecycle before promoting anything into production Infrastructure. / 本地 Docker 环境准备好后，验证当前 POC 类型检查、映射测试、MySQL 持久化、Repository 更新路径、Kysely 事务共享和失败生命周期。取得验证证据后，再在独立适配器层实现并测试 REQUIRED/NESTED/REQUIRES_NEW 事务编排，随后评估 Migration Runner 和运行时生命周期，再考虑将能力提升到正式 Infrastructure。
 
 Application remains deferred until required Infrastructure capabilities have working implementations and verification evidence.
 
@@ -448,6 +510,6 @@ Application remains deferred until required Infrastructure capabilities have wor
 ## References / 参考资料
 
 - .NET source / .NET 源码：[UnitOfWork.cs](https://github.com/aspros-luo/Aspros.Basic.Framework/blob/master/framework/Aspros.Base.Framework.Infrastructure/EntityFramework/UnitOfWork.cs), [IDbContext.cs](https://github.com/aspros-luo/Aspros.Basic.Framework/blob/master/framework/Aspros.Base.Framework.Infrastructure/EntityFramework/IDbContext.cs), [BaseRepository.cs](https://github.com/aspros-luo/Aspros.Basic.Framework/blob/master/framework/Aspros.Base.Framework.Infrastructure/EntityFramework/BaseRepository.cs), [IDapperExecutor.cs](https://github.com/aspros-luo/Aspros.Basic.Framework/blob/master/framework/Aspros.Base.Framework.Infrastructure/Dapper/IDapperExecutor.cs), [IUnitOfWork.cs](https://github.com/aspros-luo/Aspros.Basic.Framework/blob/master/framework/Aspros.Base.Framework.Domain/UoW/IUnitOfWork.cs).
-- MikroORM / MikroORM 文档：[Unit of Work](https://mikro-orm.io/docs/unit-of-work), [Transactions](https://mikro-orm.io/docs/transactions), [Getting Started and drivers](https://mikro-orm.io/docs/guide), [Migrations](https://mikro-orm.io/docs/migrations), [Entity definitions](https://mikro-orm.io/docs/defining-entities), [Entity constructors](https://mikro-orm.io/docs/entity-constructors), [Kysely integration and transaction context](https://mikro-orm.io/docs/kysely).
+- MikroORM / MikroORM 文档：[Unit of Work](https://mikro-orm.io/docs/unit-of-work), [Transactions](https://mikro-orm.io/docs/transactions), [Getting Started and drivers](https://mikro-orm.io/docs/guide), [Migrations](https://mikro-orm.io/docs/migrations), [Entity definitions](https://mikro-orm.io/docs/defining-entities), [Entity constructors](https://mikro-orm.io/docs/entity-constructors), [Kysely integration and transaction context](https://mikro-orm.io/docs/kysely), [MySQL implicit commits](https://dev.mysql.com/doc/refman/8.4/en/implicit-commit.html).
 - Drizzle ORM / Drizzle 文档：[Transactions](https://orm.drizzle.team/docs/transactions).
 - Prisma ORM / Prisma 文档：[ORM overview and supported databases](https://www.prisma.io/docs/orm).

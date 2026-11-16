@@ -21,14 +21,18 @@ export class MikroOrmTradeRepository implements IRepository<Trade, number> {
     const trade = await this.em.findOne(TradeRecord, { id });
     if (!trade) return null;
 
-    const [orders, refunds] = await Promise.all([
-      this.em.find(OrderRecord, { trade: id }, { populate: ["trade"] }),
-      this.em.find(
-        RefundRecord,
-        { trade: id },
-        { populate: ["trade", "order", "order.trade"] },
-      ),
-    ]);
+    // Keep operations sequential on one EntityManager/transaction context.
+    // 在同一个 EntityManager/事务上下文中顺序执行查询。
+    const orders = await this.em.find(
+      OrderRecord,
+      { trade: id },
+      { populate: ["trade"] },
+    );
+    const refunds = await this.em.find(
+      RefundRecord,
+      { trade: id },
+      { populate: ["trade", "order", "order.trade"] },
+    );
 
     const snapshot: TradePersistenceSnapshot = { trade, orders, refunds };
     return TradeMapper.toDomain(snapshot);
@@ -60,14 +64,18 @@ export class MikroOrmTradeRepository implements IRepository<Trade, number> {
       return;
     }
 
-    const [existingOrders, existingRefunds] = await Promise.all([
-      this.em.find(OrderRecord, { trade: aggregate.id }, { populate: ["trade"] }),
-      this.em.find(
-        RefundRecord,
-        { trade: aggregate.id },
-        { populate: ["trade", "order", "order.trade"] },
-      ),
-    ]);
+    // Do not issue concurrent queries through one transactional EntityManager.
+    // 不要通过同一个事务 EntityManager 并发发起查询。
+    const existingOrders = await this.em.find(
+      OrderRecord,
+      { trade: aggregate.id },
+      { populate: ["trade"] },
+    );
+    const existingRefunds = await this.em.find(
+      RefundRecord,
+      { trade: aggregate.id },
+      { populate: ["trade", "order", "order.trade"] },
+    );
 
     const desiredOrderIds = new Set(desired.orders.map((record) => record.id));
     const desiredRefundIds = new Set(desired.refunds.map((record) => record.id));

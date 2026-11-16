@@ -354,7 +354,7 @@ The first spike will prove Domain-to-record mapping and round-trip aggregate res
 
 已审计当前 .NET Database、Repository、UnitOfWork、Dapper 和 Migration 设计源码；事务所有权与 Domain/Infrastructure 边界风险已记录。
 
-**Recommended, pending POC / 已推荐，等待 POC：** MikroORM 7.2 + MySQL driver.
+**Recommended, pending POC / 已推荐，等待 POC：** MikroORM 7.2 + MySQL driver. The latest 7.2 patch observed during this review is 7.2.9; pin the exact patch in the isolated experiment and keep it out of the production Infrastructure dependency graph until acceptance. / 首选候选为 MikroORM 7.2 + MySQL Driver。本次审查时观察到的 7.2 最新补丁版本为 7.2.9；在独立实验中固定具体补丁版本，在验收通过前不将其加入生产 Infrastructure 依赖图。
 
 已推荐首轮使用 MikroORM 7.2 + MySQL Driver，但等待 POC 验证。
 
@@ -362,9 +362,9 @@ The first spike will prove Domain-to-record mapping and round-trip aggregate res
 
 Node 工作区尚未添加 MikroORM 依赖、数据库适配器、原生 SQL 执行器、Migration 文件或集成测试。
 
-**Next / 下一步：** build an isolated persistence spike around the existing Trade aggregate before exposing any public adapter API. If hydration, constructor behavior or transaction sharing cannot meet the POC criteria cleanly, reassess the provider before adding a production dependency.
+**New finding / 新发现：** direct ORM hydration of the current Domain classes is not the preferred approach. The POC will map separate MikroORM persistence records to and from Domain objects by calling public Domain constructors and legal state-transition methods. / 不建议让 ORM 直接还原当前 Domain 类。POC 将使用独立 MikroORM 持久化记录，通过调用 Domain 公共构造函数和合法状态转换方法完成双向映射。
 
-围绕现有 Trade 聚合建立隔离的持久化技术验证，在此之前不发布公共适配器 API。如果聚合还原、构造函数行为或事务共享无法清晰满足 POC 标准，就应在引入生产依赖前重新评估 Provider。
+**Next / 下一步：** implement this isolated record-mapping spike and its round-trip tests first; then run it against a disposable MySQL database to verify real hydration, writes, and transaction sharing. No production provider dependency or public Infrastructure API is approved yet. / 先实现独立持久化记录映射及往返测试，再连接一次性 MySQL 数据库验证真实还原、写入和事务共享。目前仍未批准生产 Provider 依赖或公共 Infrastructure API。
 
 Application remains deferred until required Infrastructure capabilities have working implementations and verification evidence.
 

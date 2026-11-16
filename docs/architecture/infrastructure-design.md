@@ -1,6 +1,6 @@
 # Infrastructure Design / Infrastructure 设计
 
-**Status / 状态：Initial capability inventory and package scaffold / 已建立首轮能力清单与 Package 骨架**
+**Status / 状态：.NET persistence audit complete; MikroORM/MySQL proof of concept pending / .NET 持久化审计已完成；MikroORM/MySQL POC 待验证**
 
 This document is the single source of truth for Infrastructure scope, capability mapping, and provider decisions. It is a design baseline, not a claim that listed capabilities are implemented.
 
@@ -176,6 +176,149 @@ Each capability follows this sequence:
 6. Add a bilingual usage example demonstrating contract registration and real adapter use. / 增加双语使用示例，展示契约注册和真实适配器使用。
 7. Record actual verification evidence and update this document. / 记录真实验证证据并更新本文档。
 
-The initial infrastructure package scaffold is complete. The next task is the reference-framework audit and provider comparison, starting with relational persistence and transaction behavior. Application remains deferred until the required infrastructure capabilities have working implementations and verification evidence.
+## 8. Reference .NET Persistence Audit / 参考 .NET 持久化审计
 
-Infrastructure package 初始骨架已完成。下一项工作是审计参考框架并比较技术供应商，优先从关系型持久化和事务行为开始。所需基础设施能力具备可运行实现和验证证据之前，Application 仍保持延期。
+**Scope / 范围：** Domain Repository, EF Core DbContext adapter, BaseRepository, UnitOfWork, DapperExecutor, DI registration, and migration guidance.
+
+**审计对象：** Domain Repository、EF Core DbContext 适配器、BaseRepository、UnitOfWork、DapperExecutor、依赖注入注册及 Migration 指引。
+
+| Area / 领域 | Verified .NET behavior / 已核实行为 | Assessment for Node / Node 版评估 |
+|---|---|---|
+| DbContext | Each business service owns its concrete DbContext. `AddAsprosDbContext<T>` maps the same scoped instance to `IDbContext` and `IEntitySetProvider`. / 具体 DbContext 由业务服务拥有；便捷注册将同一 Scoped 实例映射为两个接口。 | Preserve business-owned mapping and provider configuration. / 保留业务服务拥有映射和 Provider 配置的边界。 |
+| EF adapter | `IDbContext` exposes EF `DbSet`, `EntityEntry`, `ChangeTracker`, transaction and connection types. / `IDbContext` 暴露 EF 的集合、跟踪器、事务和连接类型。 | These belong in Infrastructure, not portable Domain contracts. / 这些类型属于 Infrastructure，不应进入可移植的 Domain 契约。 |
+| BaseRepository | Exposes `IQueryable` and expression-tree predicates; delegates updates to EF `Update`; applies soft delete for `ISoftDelete`. / 暴露 `IQueryable` 和表达式树；更新委托给 EF；对 `ISoftDelete` 执行软删除。 | Do not copy ORM query types into Node Domain. Review graph updates and soft-delete policy independently. / 不将 ORM 查询类型复制到 Node Domain；整体图更新和软删除策略分别评估。 |
+| UoW staging | Register methods only change EF tracking state; they do not call `SaveChanges`. / Register 方法只修改跟踪状态，不调用 SaveChanges。 | Preserve the staging/persistence separation. / 保留暂存与持久化分离。 |
+| Explicit transaction | `BeginTransactionAsync` returns when either the UoW or DbContext already reports an active transaction. / UoW 或 DbContext 已报告活动事务时，BeginTransactionAsync 直接返回。 | Ownership must be explicit: joining a transaction is not the same as owning its commit/disposal. / 必须明确所有权；加入事务不等于拥有提交和释放责任。 |
+| Commit | Calls `SaveChangesAsync`, then commits only the transaction held in the UoW's `_currentTransaction`. / 先执行 SaveChangesAsync，再只提交 UoW 自己持有的事务。 | There is an ownership edge case if DbContext has an external transaction while `_currentTransaction` is null. / 若 DbContext 有外部事务而 `_currentTransaction` 为空，就存在事务所有权边界问题。 |
+| Rollback | Rolls back its owned transaction and clears the entire EF ChangeTracker. / 回滚自己持有的事务并清空整个 ChangeTracker。 | This detaches all tracked entities and does not restore already-mutated CLR objects. Failed contexts should be abandoned. / 这会分离所有已跟踪实体，也不会恢复已经修改的对象；失败上下文应被放弃。 |
+| Dapper | Uses the same DbContext connection and passes its current EF transaction to Dapper; opens the connection synchronously when needed. / 使用同一 DbContext 连接并传入当前 EF 事务；必要时同步打开连接。 | Preserve shared connection/transaction semantics, but use async I/O in Node. / 保留共享连接和事务语义；Node 版使用异步 I/O。 |
+| DI lifetime | UoW, DapperExecutor, repositories and DbContext are scoped. / UoW、DapperExecutor、仓储和 DbContext 均为 Scoped。 | The Node equivalent must isolate mutable persistence context per request/job. / Node 版必须按请求/任务隔离可变持久化上下文。 |
+| Migration | The roadmap selects MySQL/Pomelo first, uses EF migrations, recommends reviewed production SQL/bundles, and rejects automatic schema migration on every service instance startup. / 路线文档先选 MySQL/Pomelo，采用 EF Migration，生产环境审核 SQL/Bundle，不建议每个服务实例启动时自动迁移。 | Preserve this operational policy. / 保留该运维原则。 |
+
+### 8.1 Important Audit Findings / 重要审计发现
+
+1. **The .NET Domain contract is less persistence-neutral than its description suggests.** `IRepository` exposes `IQueryable` and expression trees, and `IEntitySetProvider` lives in Domain. The Node Domain contract is deliberately narrower (`findById` and `save`); keep that decision and do not reintroduce ORM query types.
+
+   **.NET Domain 契约的持久化无关性弱于其描述。** `IRepository` 暴露 `IQueryable` 和表达式树，`IEntitySetProvider` 也位于 Domain。Node Domain 已有意收窄为 `findById` 和 `save`；应保留该决策，不要重新引入 ORM 查询类型。
+
+2. **The .NET UoW has an ambiguous external-transaction case.** `HasActiveTransaction` considers both the DbContext and the UoW, but Commit only commits the UoW-owned field. Node must distinguish transaction owner, participant and committer.
+
+   **.NET UoW 对外部事务的处理存在歧义。** `HasActiveTransaction` 同时检查 DbContext 和 UoW，但 Commit 只提交 UoW 自己持有的字段。Node 版必须区分事务所有者、参与者和提交者。
+
+3. **Rollback does not restore object state.** Clearing a tracker/context prevents stale tracking from being flushed again; it does not reverse mutations made to objects already held by business code.
+
+   **回滚不会恢复对象状态。** 清空跟踪器/上下文可以避免旧跟踪状态再次提交，但不会撤销业务代码已经对对象实例做出的修改。
+
+4. **Soft delete currently reads the system clock in the generic repository.** The Node Domain has no mandatory equivalent contract. Do not add universal soft-delete behavior or read the clock inside generic persistence code without an explicit policy.
+
+   **当前软删除在通用仓储中直接读取系统时间。** Node Domain 没有强制对应契约；没有明确策略前，不增加通用软删除行为，也不在通用持久化代码中读取系统时钟。
+
+5. **The inspected .NET Infrastructure project references an EF Core 10 preview package while the README describes .NET 10.** The tracked repository tree also did not expose a dedicated test project or the CLI tool's implementation source, although docs describe regression fixtures and the migration workflow. These are audit gaps; they are not proof of runtime acceptance.
+
+   **检查到的 .NET Infrastructure 项目引用 EF Core 10 Preview 包，而 README 描述的是 .NET 10。** 当前跟踪文件树中也没有看到独立测试项目或 CLI 工具实现源码，尽管文档描述了回归夹具和 Migration 工作流。这些属于审计缺口，不是运行时验收通过的证据。
+
+## 9. Node Persistence Provider Evaluation / Node 持久化 Provider 评估
+
+### 9.1 Candidate Comparison / 候选方案比较
+
+| Candidate / 方案 | Advantages / 优势 | Trade-offs / 代价 | Assessment / 评估 |
+|---|---|---|---|
+| **MikroORM 7.2** | Data Mapper, Identity Map, change tracking, Unit of Work, implicit/explicit transactions, raw SQL in current transaction context, migrations and official MySQL driver. / Data Mapper、Identity Map、变更跟踪、UoW、隐式/显式事务、当前事务上下文中的原生 SQL、Migration 和官方 MySQL Driver。 | Stateful EntityManager must be isolated per request/job. Aggregate hydration, relation mapping and constructors need a POC. / 有状态 EntityManager 必须按请求/任务隔离；聚合还原、关系映射和构造函数需要 POC。 | **Leading candidate for first MySQL adapter; not yet approved. / 首个 MySQL 适配器的优先候选；尚未批准。** |
+| Drizzle ORM | Typed SQL-first schema/query APIs and explicit transactions with savepoints. / 类型化 SQL 优先的 Schema/Query API，以及支持 Savepoint 的显式事务。 | Its central model is SQL/query composition rather than EF-style change-tracked aggregate Unit of Work; we would implement more persistence-context behavior ourselves. / 其核心模型是 SQL/Query 组合，而不是 EF 风格的变更跟踪聚合 UoW；更多持久化上下文行为需要自行实现。 | Strong alternative for a deliberately SQL-first design, but not the closest fit to the current EF behavior. / 是 SQL 优先设计的强备选，但与现有 EF 行为的贴合度较低。 |
+| Prisma ORM | Generated TypeScript data access and migration workflow. / 生成式 TypeScript 数据访问和 Migration 工作流。 | Current Prisma 8 documentation describes MySQL as early preview while PostgreSQL is supported; Prisma 7 remains a separate stable line. / 当前 Prisma 8 文档将 MySQL 描述为 Early Preview，而 PostgreSQL 已支持；Prisma 7 是另一条稳定版本线。 | Do not select as the initial MySQL provider while current MySQL support remains preview-level. / 当前 MySQL 支持仍为 Preview 时，不选为首个 MySQL Provider。 |
+
+### 9.2 Recommended Candidate / 推荐候选
+
+Use **MikroORM 7.2 with its MySQL driver** as the first persistence proof-of-concept target, not yet as an approved or implemented dependency.
+
+首轮持久化 POC 建议使用 **MikroORM 7.2 + MySQL Driver**，但目前它仍是候选方案，并非已批准或已实现的依赖。
+
+Reasons / 原因：
+
+- MikroORM explicitly uses Data Mapper, Unit of Work and Identity Map patterns. / MikroORM 明确采用 Data Mapper、Unit of Work 和 Identity Map 模式。
+- `em.flush()` groups pending writes into a transaction when supported; `em.transactional()` and explicit `begin/commit/rollback` support wider transaction scopes. / 在支持的情况下，`em.flush()` 会将待处理写入集中到一个事务；也提供显式事务范围 API。
+- Its official driver list includes MySQL, and migrations are available through a separate package and CLI. / 官方 Driver 列表包含 MySQL，并通过独立 Package 和 CLI 提供 Migration。
+- EntityManager raw SQL execution uses the active transaction context, allowing a narrow raw-SQL adapter to participate in ORM transactions. / EntityManager 原生 SQL 使用活动事务上下文，使精简 SQL 适配器能够参与 ORM 事务。
+- `EntitySchema` / `defineEntity` allow programmatic metadata, giving us a way to keep ORM decorators and provider types outside Domain. / `EntitySchema` / `defineEntity` 支持编程式元数据，可让 ORM Decorator 和 Provider 类型留在 Domain 之外。
+
+### 9.3 Proposed Adapter Mapping / 建议适配方式
+
+| Current Domain contract / 当前 Domain 契约 | Proposed adapter / 建议适配 |
+|---|---|
+| `IRepository.findById` | Load the aggregate and mapped state needed by its invariants through the scoped EntityManager. / 通过 Scoped EntityManager 加载聚合及其不变量所需状态。 |
+| `IRepository.save` | Register new aggregates; let the ORM Unit of Work track changes on loaded aggregates. / 登记新聚合；由 ORM UoW 跟踪已加载聚合的变更。 |
+| `IUnitOfWork.commit` | Candidate: call EntityManager `flush()`; verify inside and outside explicit transactions. / 候选：调用 EntityManager `flush()`；分别验证显式事务内外的行为。 |
+| `IUnitOfWork.rollback` | Abandon the current persistence context; roll back only a transaction owned by that scope. Do not claim object instances are restored. / 放弃当前持久化上下文；只回滚该范围拥有的事务，不声称对象实例已恢复。 |
+| Dapper-like API / Dapper 类 API | Add a small `IRawSqlExecutor` only when a real query requires it; adapt `EntityManager.execute` so it uses the active transaction. / 仅在真实查询需要时增加精简 `IRawSqlExecutor`；适配 `EntityManager.execute` 并确保复用活动事务。 |
+| Explicit multi-operation transaction / 多操作显式事务 | Use a callback-based transaction scope. The future Application layer owns its port; Infrastructure provides the MikroORM implementation. / 使用回调式事务范围；未来 Application 拥有端口，Infrastructure 提供 MikroORM 实现。 |
+
+**Do not add `beginTransaction()` to Domain's current `IUnitOfWork` just to mirror .NET.** The existing Domain contract intentionally contains only `commit()` and `rollback()`. A wider transaction boundary should be a separate callback-based port owned by the layer that needs it.
+
+**不要为了模仿 .NET 就给当前 Domain 的 `IUnitOfWork` 增加 `beginTransaction()`。** 现有 Domain 契约有意只包含 `commit()` 和 `rollback()`。更大范围的事务边界应由真正需要它的层定义独立回调式端口。
+
+### 9.4 Transaction Semantics / 事务语义
+
+- Ordinary aggregate changes may be persisted with one ORM flush transaction. / 普通聚合变更可通过一次 ORM Flush 事务持久化。
+- Mixed ORM and raw-SQL work must run in one explicit transaction context. / ORM 与原生 SQL 混合操作必须运行在同一个显式事务上下文中。
+- MikroORM `em.transactional()` defaults to NESTED/savepoint propagation. The .NET implementation's existing-transaction behavior is closer to REQUIRED/join-existing. The Node adapter must choose and test propagation explicitly. / MikroORM `em.transactional()` 默认采用 NESTED/Savepoint；原 .NET 实现对已有事务的处理更接近 REQUIRED/加入现有事务。Node 适配器必须显式选择并测试传播语义。
+- Each concurrent request/job needs an isolated EntityManager context. After a failed unit of work, reload through a fresh context rather than reusing stale managed objects. / 每个并发请求/任务都需要独立 EntityManager；工作单元失败后，应通过新上下文重新加载，而不是复用旧托管对象。
+- A participant must not commit or dispose a transaction owned by its caller. / 事务参与者不得提交或释放调用方拥有的事务。
+- Database transactions do not make external HTTP or broker operations atomic; reliable cross-service delivery remains an Outbox concern. / 数据库事务不能使外部 HTTP 或 Broker 操作具备原子性；跨服务可靠投递仍由 Outbox 解决。
+
+### 9.5 MySQL Migration Caveat / MySQL Migration 注意事项
+
+MikroORM supports migration generation and transactional configuration, but its documentation explicitly notes that MySQL DDL forces implicit commits and cannot be rolled back like ordinary DML. Test real MySQL migration behavior and never advertise schema migrations as fully rollback-atomic.
+
+MikroORM 支持 Migration 生成和事务配置，但其文档明确指出 MySQL DDL 会触发隐式提交，不能像普通 DML 一样回滚。必须验证真实 MySQL Migration 行为，不得宣称 Schema 变更具备完整回滚原子性。
+
+Production policy remains: generate, review and deploy migrations explicitly; do not automatically apply schema changes on every service instance startup.
+
+生产策略保持不变：显式生成、审核和部署 Migration；不要让每个服务实例启动时自动应用 Schema 变更。
+
+## 10. Persistence POC Acceptance / 持久化 POC 验收标准
+
+MikroORM is not approved as the framework's default provider until all checks pass:
+
+以下检查全部通过前，不批准 MikroORM 成为框架默认 Provider：
+
+1. **Domain isolation / Domain 隔离** — Map existing Domain classes externally; Domain must not import MikroORM or carry ORM decorators. / 在外部映射现有 Domain 类；Domain 不得导入 MikroORM 或携带 ORM Decorator。
+2. **Aggregate restoration / 聚合还原** — Load Trade with Order and Refund state, then verify its behavior and invariants. / 加载包含 Order 和 Refund 状态的 Trade，再验证行为和不变量。
+3. **Constructor/private state / 构造函数与私有状态** — Verify constructors, private fields/accessors and hydration. MikroORM normally skips constructors for managed entities unless explicitly configured; this must be reconciled with Domain invariants. / 验证构造函数、私有字段/访问器和实体还原；MikroORM 默认加载托管实体时不调用构造函数，必须证明这与 Domain 不变量兼容。
+4. **Repository semantics / Repository 语义** — `findById` restores all state required by aggregate invariants; `save` handles both new and loaded aggregates. / `findById` 恢复不变量所需状态；`save` 正确处理新聚合和已加载聚合。
+5. **UoW failure lifecycle / UoW 失败生命周期** — Verify flush, failed flush, rollback, context abandonment and reload. / 验证 Flush、Flush 失败、回滚、上下文放弃和重新加载。
+6. **Shared transaction / 共享事务** — In one transaction, perform an ORM write and raw SQL write; force a failure and prove both roll back. / 在同一事务中执行 ORM 和原生 SQL 写入；人为制造失败，证明两者都回滚。
+7. **Propagation/ownership / 传播与所有权** — Verify REQUIRED/join-existing behavior and ensure inner components never commit outer transactions. / 验证 REQUIRED/加入现有事务，并确保内部组件不会提交外层事务。
+8. **Concurrent isolation / 并发隔离** — Prove parallel requests/jobs do not share identity maps or transaction state. / 证明并发请求/任务不会共享 Identity Map 或事务状态。
+9. **MySQL type behavior / MySQL 类型行为** — Verify BIGINT identifiers, decimal precision, nullability, indexes, unique constraints and relation delete behavior. / 验证 BIGINT、Decimal 精度、可空性、索引、唯一约束和关系删除行为。
+10. **Migration / Migration** — Generate, review and execute migrations on disposable MySQL; test destructive diffs and data-preserving rename scenarios. / 在一次性 MySQL 中生成、审核和执行 Migration；测试破坏性差异及保留数据的 Rename 场景。
+11. **Lifecycle / 生命周期** — Verify connection pool startup, failure cleanup, graceful shutdown and `orm.close()`. / 验证连接池启动、失败清理、优雅关闭和 `orm.close()`。
+12. **Example/evidence / 示例与证据** — Add a bilingual real-adapter example and record actual unit/integration results; static review alone is not acceptance. / 增加双语真实适配器示例并记录实际测试结果；静态审查不算验收。
+
+## 11. Current Result and Next Step / 当前结论与下一步
+
+**Audited / 已审计：** tracked .NET Database, Repository, UnitOfWork, Dapper and migration design files. Transaction ownership and Domain/Infrastructure boundary risks are recorded above.
+
+已审计当前 .NET Database、Repository、UnitOfWork、Dapper 和 Migration 设计源码；事务所有权与 Domain/Infrastructure 边界风险已记录。
+
+**Recommended, pending POC / 已推荐，等待 POC：** MikroORM 7.2 + MySQL driver.
+
+已推荐首轮使用 MikroORM 7.2 + MySQL Driver，但等待 POC 验证。
+
+**Not implemented / 尚未实现：** no MikroORM dependency, database adapter, raw SQL executor, migration files or integration tests have been added to the Node workspace.
+
+Node 工作区尚未添加 MikroORM 依赖、数据库适配器、原生 SQL 执行器、Migration 文件或集成测试。
+
+**Next / 下一步：** build an isolated persistence spike around the existing Trade aggregate before exposing any public adapter API. If hydration, constructor behavior or transaction sharing cannot meet the POC criteria cleanly, reassess the provider before adding a production dependency.
+
+围绕现有 Trade 聚合建立隔离的持久化技术验证，在此之前不发布公共适配器 API。如果聚合还原、构造函数行为或事务共享无法清晰满足 POC 标准，就应在引入生产依赖前重新评估 Provider。
+
+Application remains deferred until required Infrastructure capabilities have working implementations and verification evidence.
+
+所需 Infrastructure 能力具备可运行实现和验证证据之前，Application 仍保持延期。
+
+## References / 参考资料
+
+- .NET source / .NET 源码：[UnitOfWork.cs](https://github.com/aspros-luo/Aspros.Basic.Framework/blob/master/framework/Aspros.Base.Framework.Infrastructure/EntityFramework/UnitOfWork.cs), [IDbContext.cs](https://github.com/aspros-luo/Aspros.Basic.Framework/blob/master/framework/Aspros.Base.Framework.Infrastructure/EntityFramework/IDbContext.cs), [BaseRepository.cs](https://github.com/aspros-luo/Aspros.Basic.Framework/blob/master/framework/Aspros.Base.Framework.Infrastructure/EntityFramework/BaseRepository.cs), [IDapperExecutor.cs](https://github.com/aspros-luo/Aspros.Basic.Framework/blob/master/framework/Aspros.Base.Framework.Infrastructure/Dapper/IDapperExecutor.cs), [IUnitOfWork.cs](https://github.com/aspros-luo/Aspros.Basic.Framework/blob/master/framework/Aspros.Base.Framework.Domain/UoW/IUnitOfWork.cs).
+- MikroORM / MikroORM 文档：[Unit of Work](https://mikro-orm.io/docs/unit-of-work), [Transactions](https://mikro-orm.io/docs/transactions), [Getting Started and drivers](https://mikro-orm.io/docs/guide), [Migrations](https://mikro-orm.io/docs/migrations), [Entity definitions](https://mikro-orm.io/docs/defining-entities), [Entity constructors](https://mikro-orm.io/docs/entity-constructors).
+- Drizzle ORM / Drizzle 文档：[Transactions](https://orm.drizzle.team/docs/transactions).
+- Prisma ORM / Prisma 文档：[ORM overview and supported databases](https://www.prisma.io/docs/orm).

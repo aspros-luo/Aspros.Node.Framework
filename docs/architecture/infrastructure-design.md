@@ -387,7 +387,7 @@ This is a business-code layering convention and does not require every framework
 
 **New finding / 新发现：** direct ORM hydration of the current Domain classes is not the preferred approach. The POC will map separate MikroORM persistence records to and from Domain objects by calling public Domain constructors and legal state-transition methods. / 不建议让 ORM 直接还原当前 Domain 类。POC 将使用独立 MikroORM 持久化记录，通过调用 Domain 公共构造函数和合法状态转换方法完成双向映射。
 
-**Next / 下一步：** execute the mapping tests and correct any compiler/runtime issues; then add MikroORM bootstrap and run record persistence/hydration against a disposable MySQL database. Only after that should Repository/UoW, transaction propagation, and raw SQL sharing be implemented. No production provider dependency or public Infrastructure API is approved yet. / 先执行映射测试并修复编译或运行问题；随后增加 MikroORM 启动配置，在一次性 MySQL 数据库中验证记录持久化与还原。之后再实现 Repository/UoW、事务传播和原生 SQL 共享。目前仍未批准生产 Provider 依赖或公开 Infrastructure API。目前仍未批准生产 Provider 依赖或公共 Infrastructure API。
+**Next / 下一步：** execute the mapping tests and correct any compiler/runtime issues; then add MikroORM bootstrap and run record persistence/hydration against a disposable MySQL database. Only after that should Repository/UoW, transaction propagation, and raw SQL sharing be implemented. No production provider dependency or public Infrastructure API is approved yet. / 先执行映射测试并修复编译或运行问题；随后增加 MikroORM 启动配置，在一次性 MySQL 数据库中验证记录持久化与还原。之后再实现 Repository/UoW、事务传播和原生 SQL 共享。目前仍未批准生产 Provider 依赖或公开 Infrastructure API。
 
 Application remains deferred until required Infrastructure capabilities have working implementations and verification evidence.
 

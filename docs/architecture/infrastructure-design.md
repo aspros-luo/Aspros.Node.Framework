@@ -456,7 +456,7 @@ POC 中人工审查的 `schema.mysql.sql` 只用于一次性实验数据库初�
 
 - Initialize one ORM instance per process/database configuration. It owns the connection pool and metadata. / 每个进程/数据库配置初始化一个 ORM 实例，由它拥有连接池和元数据。
 - Fork an EntityManager/identity map per request or background job. Never share one mutable EntityManager across concurrent work. / 每个请求或后台任务 Fork 独立 EntityManager/Identity Map。绝不在并发任务间共享同一个可变 EntityManager。
-- A Unit of Work owns its forked context and transaction, not the process-wide pool. / Unit of Work 拥有自己的 Fork 上下文和事务，不拥有进程级连接池。
+- A Unit of Work owns its forked context and transaction, not the process-wide pool. / Unit of Work 拥有自己的 Fork 上下文以及显式开启的事务，不拥有进程级连接池。
 - Graceful shutdown stops new work, drains active requests/jobs, settles active transactions, then closes the ORM/pool once. Forced close is an emergency path only. / 优雅关闭应先停止接收新任务，排空活动请求/后台任务，处理完活动事务，再统一关闭 ORM/连接池。强制关闭仅用于紧急情况。
 - Use database readiness checks separately from process liveness. Retry only whole operations that are safe to retry, and always use a fresh EntityManager after transaction failure. / 数据库 Readiness 与进程 Liveness 分开检查。仅重试安全且具备幂等性的完整操作；事务失败后始终使用新的 EntityManager。
 

@@ -97,9 +97,9 @@ await scope.unitOfWork.commit(); // the only persistence/save boundary
 
 ## Same-Transaction SQL / 同事务原生 SQL
 
-MikroORM 7.2 provides a first-class Kysely integration through `EntityManager.getKysely()`. When called on the EntityManager that owns an active transaction, Kysely queries use that transaction context. The integration test explicitly flushes the ORM changes, writes a test-only audit row through Kysely, then rolls back and verifies that neither write remains.
+MikroORM 7.2 provides a first-class Kysely integration through `EntityManager.getKysely()`. When called on the EntityManager that owns an active transaction, Kysely queries use that transaction context. The integration test opens an explicit transaction, registers a new aggregate without committing it, writes a test-only audit row through Kysely, then rolls back and verifies the audit row is absent and the registered aggregate was never persisted.
 
-MikroORM 7.2 通过 `EntityManager.getKysely()` 提供一等 Kysely 集成。在拥有活动事务的 EntityManager 上调用时，Kysely 查询会使用同一个事务上下文。集成测试会先 Flush ORM 变更，再通过 Kysely 写入仅供测试的审计记录，随后回滚并验证两类写入都不存在。
+MikroORM 7.2 通过 `EntityManager.getKysely()` 提供一等 Kysely 集成。在拥有活动事务的 EntityManager 上调用时，Kysely 查询会使用同一个事务上下文。集成测试会显式开启事务，登记一个尚未 Commit 的新聚合，再通过 Kysely 写入仅供测试的审计记录，随后回滚并验证审计记录不存在，且登记的聚合从未被持久化。
 
 This is the current candidate for Dapper-like SQL access in the Node stack; it is not yet a published framework-level SQL executor abstraction. The behavior still requires execution against the local disposable MySQL database.
 
@@ -110,13 +110,13 @@ This is the current candidate for Dapper-like SQL access in the Node stack; it i
 
 ### Transaction propagation / 事务传播
 
-The current `TradePersistenceScope` is an explicitly owned top-level transaction. It maps to the root of a REQUIRED operation; it does not yet provide nested propagation. Do not create a second scope for a method that is meant to join the caller's transaction.
+The current `TradePersistenceScope` forks an isolated EntityManager without opening a transaction. Calling `beginTransaction()` explicitly creates the top-level transaction; nested propagation is not yet provided. Do not create a second scope for a method that is meant to join the caller's transaction.
 
-当前 `TradePersistenceScope` 是一个显式拥有顶层事务的 Scope，对应 REQUIRED 操作的事务根节点；它尚未提供嵌套传播。若某个方法应加入调用方事务，不要为它再创建第二个 Scope。
+当前 `TradePersistenceScope` Fork 隔离的 EntityManager，但不会自动开启事务。显式调用 `beginTransaction()` 才会创建顶层事务；目前尚未提供嵌套传播。若某个方法应加入调用方事务，不要为它再创建第二个 Scope。
 
 The framework-level policy is:
 
-- `REQUIRED`: default business transaction. One outer scope owns the transaction; inner services reuse the same Unit of Work/EntityManager. Only the owner commits or rolls back. / `REQUIRED`：业务事务默认策略。由一个外层 Scope 拥有事务；内层服务复用同一个 Unit of Work/EntityManager。只有事务所有者可以提交或回滚。
+- `REQUIRED`: opt-in transaction policy for operations that explicitly require a transaction. One outer scope owns the transaction; inner services reuse the same Unit of Work/EntityManager. Only the owner commits or rolls back. / `REQUIRED`：仅供明确要求事务的操作选择使用。由一个外层 Scope 拥有事务；内层服务复用同一个 Unit of Work/EntityManager。只有事务所有者可以提交或回滚。
 - `NESTED`: savepoint on the same connection. This is an advanced opt-in and must be tested for EntityManager identity-map behavior and Domain object state after rollback. / `NESTED`：在同一连接上创建 Savepoint。属于高级可选能力，必须验证 EntityManager Identity Map 行为及回滚后 Domain 对象状态。
 - `REQUIRES_NEW`: independent transaction and connection while the outer transaction is suspended. Use sparingly; pool exhaustion and lock contention are possible when outer transactions hold connections. / `REQUIRES_NEW`：挂起外层事务期间，使用独立事务和连接。应谨慎使用；外层事务持有连接时可能导致连接池耗尽或锁竞争。
 - `SUPPORTS`, `NOT_SUPPORTED`, and `NEVER` are not part of the first framework contract. `MANDATORY` may be represented as an assertion that an active Unit of Work exists, rather than a separate transaction implementation. / 首版框架契约不包含 `SUPPORTS`、`NOT_SUPPORTED` 和 `NEVER`。`MANDATORY` 可以表示为“必须存在活动 Unit of Work”的断言，而不必另造事务实现。
@@ -142,7 +142,7 @@ POC 中人工审查的 `schema.mysql.sql` 只用于一次性实验数据库初�
 
 - Initialize one MikroORM instance per process/database configuration during application bootstrap. It owns the pool and metadata. / 每个进程/数据库配置在应用启动时初始化一个 MikroORM 实例，由它拥有连接池和元数据。
 - Fork an EntityManager/identity map per request or background job. Never share one mutable EntityManager across concurrent requests/jobs. / 每个请求或后台任务 Fork 独立 EntityManager/Identity Map。绝不在并发请求/任务之间共享同一个可变 EntityManager。
-- A Unit of Work scope owns its forked context and transaction, but does not own or close the process-wide connection pool. / Unit of Work Scope 拥有自己的 Fork 上下文和事务，但不拥有也不关闭进程级连接池。
+- A Unit of Work scope owns its forked context and any transaction it explicitly opens, but does not own or close the process-wide connection pool. / Unit of Work Scope 拥有自己的 Fork 上下文以及显式开启的事务，但不拥有也不关闭进程级连接池。
 - On graceful shutdown: stop accepting new work, drain active requests/jobs, ensure active transactions are committed or rolled back, then close the ORM/pool once. Forced close is an emergency path, not routine request cleanup. / 优雅关闭时：停止接收新任务，等待活动请求/后台任务排空，确保活动事务已提交或回滚，然后统一关闭 ORM/连接池。强制关闭只用于紧急情况，不是每次请求清理的常规方式。
 - Readiness checks may use the ORM connection health API; liveness should not fail solely because a transient database connection check failed. Retry whole operations only when idempotency and error classification make that safe, using a fresh EntityManager after a failed transaction. / Readiness 检查可以使用 ORM 连接健康 API；Liveness 不应仅因瞬时数据库连接检查失败而判定进程死亡。只有在幂等性和错误分类允许时才重试整个操作，并在事务失败后使用新的 EntityManager。
 

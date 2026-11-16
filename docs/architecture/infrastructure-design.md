@@ -361,7 +361,9 @@ The framework distinguishes persistence records (DO), domain objects, applicatio
 - **VO / View Object** belongs to the API/presentation boundary and is shaped for a particular response. One Domain aggregate may have multiple response models. / **VO / View Object** 属于 API/表现层边界，按具体响应场景设计；一个领域聚合可以对应多个响应模型。
 - **Mapper / Assembler** performs explicit conversions at boundaries. Infrastructure owns persistence-to-domain mapping; API/presentation code owns domain/query-result-to-response mapping. / **Mapper / Assembler** 在边界处执行显式转换。Infrastructure 负责持久化模型与领域模型的映射；API/表现层代码负责领域对象或查询结果到 API 响应模型的映射。
 
-The common write path is persistence records → Domain aggregate → application result/DTO → API response VO. The read path may use a purpose-built read model and need not reconstruct a Domain aggregate when no domain behavior or invariant is being executed. Storage technologies such as Redis and ClickHouse are not automatically authoritative sources for reconstructing transactional aggregates; authority and consistency must be explicit per use case.
+The common reconstitution/read path is database rows → DO/persistence records → Domain aggregate → application result/DTO → API response VO. A command/write path runs in the opposite direction: API request DTO → Application → Domain behavior → persistence mapping/DO → database. Read queries may use a purpose-built read model and need not reconstruct a Domain aggregate when no domain behavior or invariant is being executed. Storage technologies such as Redis and ClickHouse are not automatically authoritative sources for reconstructing transactional aggregates; authority and consistency must be explicit per use case.
+
+常见的还原/读取路径为：数据库记录 → DO/持久化记录 → Domain 聚合 → 应用结果/DTO → API 响应 VO。命令/写入路径则反向执行：API 请求 DTO → Application → Domain 行为 → 持久化映射/DO → 数据库。若查询不执行领域行为或维护领域不变量，可以使用专用读模型，无需还原 Domain 聚合。Redis、ClickHouse 等存储不会自动成为事务聚合的权威还原来源；必须针对具体用例明确数据权威性和一致性。
 
 常见写路径为：持久化记录 → Domain 聚合 → 应用结果/DTO → API 响应 VO。读取路径可以使用专用读模型；如果不执行领域行为或维护领域不变量，就不必还原完整 Domain 聚合。Redis、ClickHouse 等存储技术也不会自动成为事务聚合的权威还原来源；必须针对具体用例明确数据权威性和一致性。
 
@@ -381,11 +383,11 @@ This is a business-code layering convention and does not require every framework
 
 **POC scaffold added / 已加入 POC 骨架：** an isolated `experiments/mikroorm-trade-poc` workspace package now defines separate Trade/Order/Refund persistence records and an explicit mapper with mapping tests. MikroORM 7.2.9 dependencies are isolated from `@aspros/infrastructure`; these tests have not yet been executed in a local Node/pnpm environment. / 已新增独立 `experiments/mikroorm-trade-poc` 工作区 package，定义独立的 Trade/Order/Refund 持久化记录、显式 Mapper 和映射测试。MikroORM 7.2.9 依赖与 `@aspros/infrastructure` 隔离；这些测试尚未在本地 Node/pnpm 环境执行。
 
-Node 工作区尚未添加 MikroORM 依赖、数据库适配器、原生 SQL 执行器、Migration 文件或集成测试。
+正式 `@aspros/infrastructure` package 尚未添加 MikroORM 依赖、数据库适配器、原生 SQL 执行器或 Migration 文件；MikroORM 依赖目前只存在于独立 POC package，且尚无真实 MySQL 集成测试。
 
 **New finding / 新发现：** direct ORM hydration of the current Domain classes is not the preferred approach. The POC will map separate MikroORM persistence records to and from Domain objects by calling public Domain constructors and legal state-transition methods. / 不建议让 ORM 直接还原当前 Domain 类。POC 将使用独立 MikroORM 持久化记录，通过调用 Domain 公共构造函数和合法状态转换方法完成双向映射。
 
-**Next / 下一步：** execute the mapping tests and correct any compiler/runtime issues; then add MikroORM bootstrap and run record persistence/hydration against a disposable MySQL database. Only after that should Repository/UoW, transaction propagation, and raw SQL sharing be implemented. No production provider dependency or public Infrastructure API is approved yet. / 先执行映射测试并修复编译或运行问题；随后增加 MikroORM 启动配置，在一次性 MySQL 数据库中验证记录持久化与还原。之后再实现 Repository/UoW、事务传播和原生 SQL 共享。目前仍未批准生产 Provider 依赖或公开 Infrastructure API。 / 先实现独立持久化记录映射及往返测试，再连接一次性 MySQL 数据库验证真实还原、写入和事务共享。目前仍未批准生产 Provider 依赖或公共 Infrastructure API。
+**Next / 下一步：** execute the mapping tests and correct any compiler/runtime issues; then add MikroORM bootstrap and run record persistence/hydration against a disposable MySQL database. Only after that should Repository/UoW, transaction propagation, and raw SQL sharing be implemented. No production provider dependency or public Infrastructure API is approved yet. / 先执行映射测试并修复编译或运行问题；随后增加 MikroORM 启动配置，在一次性 MySQL 数据库中验证记录持久化与还原。之后再实现 Repository/UoW、事务传播和原生 SQL 共享。目前仍未批准生产 Provider 依赖或公开 Infrastructure API。目前仍未批准生产 Provider 依赖或公共 Infrastructure API。
 
 Application remains deferred until required Infrastructure capabilities have working implementations and verification evidence.
 

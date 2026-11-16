@@ -10,7 +10,8 @@
     "build": "pnpm --filter @aspros/domain --filter @aspros/infrastructure build",
     "test": "pnpm --filter @aspros/domain test",
     "typecheck": "pnpm --filter @aspros/domain --filter @aspros/infrastructure typecheck",
-    "check": "pnpm typecheck && pnpm test && pnpm build"
+    "check": "pnpm typecheck && pnpm test && pnpm build",
+    "poc:trade-mapping": "pnpm --filter @aspros/mikroorm-trade-poc test"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

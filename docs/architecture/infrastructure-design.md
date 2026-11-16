@@ -348,6 +348,27 @@ The first spike will prove Domain-to-record mapping and round-trip aggregate res
 
 首轮技术验证先证明 Domain 与持久化记录之间的映射及聚合往返还原，再实现通用 Repository/UoW API。这样可以隔离最重要的兼容风险，避免过早发布适配器契约。
 
+
+## 10.2 Object Model Boundaries / 对象模型边界
+
+The framework distinguishes persistence records (DO), domain objects, application transfer models (DTO), and API view models (VO). These names describe different responsibilities; they are not interchangeable aliases for one shared class.
+
+框架区分持久化记录（DO）、领域对象、应用传输模型（DTO）和 API 视图模型（VO）。这些名称代表不同职责，不应成为同一个共享类的不同别名。
+
+- **DO / Persistence Record** belongs to Infrastructure and describes the selected storage shape. It may flatten a Domain Value Object into columns, store it as JSON, split one domain concept across tables, or combine several domain concepts where persistence requires it. / **DO / 持久化记录** 属于 Infrastructure，描述选定的存储结构。它可以将 Domain Value Object 展开为多个字段、存储为 JSON，也可以按持久化需要拆分或合并领域概念。
+- **Domain Model** owns business meaning, behavior, identity, invariants, and aggregate boundaries. It must not depend on ORM metadata or database schema. / **Domain Model** 拥有业务语义、行为、身份、不变量和聚合边界，不依赖 ORM 元数据或数据库 Schema。
+- **DTO** is introduced at an actual transfer boundary, such as an application command/query contract or an external service contract. It is not a universal object reused by every layer. / **DTO** 只在真实的数据传输边界引入，例如应用命令/查询契约或外部服务契约，不是供所有层复用的万能对象。
+- **VO / View Object** belongs to the API/presentation boundary and is shaped for a particular response. One Domain aggregate may have multiple response models. / **VO / View Object** 属于 API/表现层边界，按具体响应场景设计；一个领域聚合可以对应多个响应模型。
+- **Mapper / Assembler** performs explicit conversions at boundaries. Infrastructure owns persistence-to-domain mapping; API/presentation code owns domain/query-result-to-response mapping. / **Mapper / Assembler** 在边界处执行显式转换。Infrastructure 负责持久化模型与领域模型的映射；API/表现层代码负责领域对象或查询结果到 API 响应模型的映射。
+
+The common write path is persistence records → Domain aggregate → application result/DTO → API response VO. The read path may use a purpose-built read model and need not reconstruct a Domain aggregate when no domain behavior or invariant is being executed. Storage technologies such as Redis and ClickHouse are not automatically authoritative sources for reconstructing transactional aggregates; authority and consistency must be explicit per use case.
+
+常见写路径为：持久化记录 → Domain 聚合 → 应用结果/DTO → API 响应 VO。读取路径可以使用专用读模型；如果不执行领域行为或维护领域不变量，就不必还原完整 Domain 聚合。Redis、ClickHouse 等存储技术也不会自动成为事务聚合的权威还原来源；必须针对具体用例明确数据权威性和一致性。
+
+This is a business-code layering convention and does not require every framework capability to introduce all four object types. The Infrastructure package must not define API VOs or application DTOs.
+
+这是一项业务代码分层约定，并不要求框架的每项能力都必须引入全部四种对象。Infrastructure package 不定义 API VO 或应用 DTO。
+
 ## 11. Current Result and Next Step / 当前结论与下一步
 
 **Audited / 已审计：** tracked .NET Database, Repository, UnitOfWork, Dapper and migration design files. Transaction ownership and Domain/Infrastructure boundary risks are recorded above.
@@ -358,13 +379,13 @@ The first spike will prove Domain-to-record mapping and round-trip aggregate res
 
 已推荐首轮使用 MikroORM 7.2 + MySQL Driver，但等待 POC 验证。
 
-**Not implemented / 尚未实现：** no MikroORM dependency, database adapter, raw SQL executor, migration files or integration tests have been added to the Node workspace.
+**POC scaffold added / 已加入 POC 骨架：** an isolated `experiments/mikroorm-trade-poc` workspace package now defines separate Trade/Order/Refund persistence records and an explicit mapper with mapping tests. MikroORM 7.2.9 dependencies are isolated from `@aspros/infrastructure`; these tests have not yet been executed in a local Node/pnpm environment. / 已新增独立 `experiments/mikroorm-trade-poc` 工作区 package，定义独立的 Trade/Order/Refund 持久化记录、显式 Mapper 和映射测试。MikroORM 7.2.9 依赖与 `@aspros/infrastructure` 隔离；这些测试尚未在本地 Node/pnpm 环境执行。
 
 Node 工作区尚未添加 MikroORM 依赖、数据库适配器、原生 SQL 执行器、Migration 文件或集成测试。
 
 **New finding / 新发现：** direct ORM hydration of the current Domain classes is not the preferred approach. The POC will map separate MikroORM persistence records to and from Domain objects by calling public Domain constructors and legal state-transition methods. / 不建议让 ORM 直接还原当前 Domain 类。POC 将使用独立 MikroORM 持久化记录，通过调用 Domain 公共构造函数和合法状态转换方法完成双向映射。
 
-**Next / 下一步：** implement this isolated record-mapping spike and its round-trip tests first; then run it against a disposable MySQL database to verify real hydration, writes, and transaction sharing. No production provider dependency or public Infrastructure API is approved yet. / 先实现独立持久化记录映射及往返测试，再连接一次性 MySQL 数据库验证真实还原、写入和事务共享。目前仍未批准生产 Provider 依赖或公共 Infrastructure API。
+**Next / 下一步：** execute the mapping tests and correct any compiler/runtime issues; then add MikroORM bootstrap and run record persistence/hydration against a disposable MySQL database. Only after that should Repository/UoW, transaction propagation, and raw SQL sharing be implemented. No production provider dependency or public Infrastructure API is approved yet. / 先执行映射测试并修复编译或运行问题；随后增加 MikroORM 启动配置，在一次性 MySQL 数据库中验证记录持久化与还原。之后再实现 Repository/UoW、事务传播和原生 SQL 共享。目前仍未批准生产 Provider 依赖或公开 Infrastructure API。 / 先实现独立持久化记录映射及往返测试，再连接一次性 MySQL 数据库验证真实还原、写入和事务共享。目前仍未批准生产 Provider 依赖或公共 Infrastructure API。
 
 Application remains deferred until required Infrastructure capabilities have working implementations and verification evidence.
 

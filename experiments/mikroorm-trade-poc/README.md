@@ -11,7 +11,7 @@ This isolated experiment evaluates MikroORM 7.2.9 against the existing Domain Tr
 - MikroORM bootstrap with caller-supplied MySQL URL. / 使用调用方提供的 MySQL URL 启动 MikroORM。
 - An opt-in integration test that writes records and reloads them through a fresh EntityManager. / 可选的集成测试：写入记录后通过全新的 EntityManager 重新加载。
 - A query-only Trade Repository adapter and a Register/Commit Unit of Work scope with opt-in transactions. / 只读 Trade Repository 适配器，以及采用 Register/Commit 语义、事务可选开启的 Unit of Work Scope。
-- No automatic schema creation, update, drop, or migration. / 不自动创建、更新、删除或迁移 Schema。
+- No schema changes occur during ordinary ORM bootstrap. Schema changes are applied only through the dedicated, explicit versioned migration command. / 普通 ORM 启动过程不会修改 Schema；只有通过独立、显式的版本化 Migration 命令才会应用 Schema 变更。
 
 ## Object Boundaries / 对象边界
 
@@ -56,6 +56,10 @@ Migration execution is a separate explicit command. Ordinary `createTradePocOrm(
 
 Migration 执行是独立的显式命令。普通 `createTradePocOrm()` 不注册 Migrator 扩展，也绝不执行 Migration。Runner 只接受名称严格匹配的 `aspros_trade_poc` 数据库，只开放 `up` 和 `status`；刻意不提供 CLI 回滚或重建命令。
 
+**Concurrency boundary / 并发边界：** Do not run `poc:trade-migrate` concurrently from multiple terminals, CI jobs, or deployment replicas. This POC runner does not acquire a distributed/database migration lock. Its caller must serialize execution. Production orchestration must provide a database/schema-scoped deployment mutex before invoking a migration process.
+
+**并发边界：** 不要从多个终端、CI Job 或部署副本并发运行 `poc:trade-migrate`。当前 POC Runner 不获取分布式锁或数据库 Migration 锁，调用方必须保证串行执行。生产部署编排必须在启动 Migration 进程前，提供按数据库/Schema 作用域隔离的部署互斥锁。
+
 When `MYSQL_POC_DATABASE_URL` is absent, the integration suite is skipped; ordinary mapper tests remain runnable. The integration test creates random IDs and deletes only the rows it created.
 
 未设置 `MYSQL_POC_DATABASE_URL` 时，集成测试会跳过；普通 Mapper 测试仍可运行。集成测试使用随机 ID，并且只删除自身创建的记录。
@@ -64,14 +68,12 @@ When `MYSQL_POC_DATABASE_URL` is absent, the integration suite is skipped; ordin
 
 - Generic, provider-independent Repository and Unit of Work adapters. The current adapters are Trade-specific POC implementations. / 通用、独立于 Provider 的 Repository 和 Unit of Work 适配器。目前实现仅是 Trade 专用 POC。
 - Explicit transaction propagation and raw SQL sharing. / 显式事务传播和原生 SQL 共享。
-- Production-ready migration policy, deployment locking and release integration; the isolated POC now has a versioned migration runner. / 面向生产的 Migration 策略、部署锁和发布集成；独立 POC 已有版本化 Migration Runner。
+- Production deployment orchestration and cross-process migration locking. The POC runner is intended for one explicitly serialized operator/deployment process only. / 生产部署编排和跨进程 Migration 互斥。当前 POC Runner 仅供单个、明确串行化的操作者/部署进程使用。
 - Runtime test evidence from the project owner's local MySQL environment. / 项目所有者本地 MySQL 环境的实际运行证据。
 
 The POC migration is an isolated schema proof, not an approved production migration strategy. MySQL DDL is not transactionally reversible; a failed multi-statement migration may leave earlier DDL applied.
 
 POC Migration 只是独立 Schema 验证，并非已批准的生产 Migration 策略。MySQL DDL 不具备事务性可逆保证；多语句 Migration 失败时，之前执行的 DDL 可能已经生效。
-
-Schema DDL 刻意以小型、可审查的 POC 脚本提供，不代表生产 Migration 策略。
 
 
 ## Repository and Unit of Work POC / Repository 与 Unit of Work 验证

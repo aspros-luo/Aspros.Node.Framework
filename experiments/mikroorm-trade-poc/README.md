@@ -135,9 +135,9 @@ Domain 的 `IUnitOfWork` 继续保持持久化技术无关：暴露变更登记�
 - MikroORM Schema Generator is development tooling, not a production schema migration mechanism. Generated SQL must be reviewed; never run `schema:update` or `schema:fresh` against production. / MikroORM Schema Generator 是开发工具，不是生产 Schema 迁移机制。生成 SQL 必须审查；绝不可在生产环境运行 `schema:update` 或 `schema:fresh`。
 - Migration execution must be observable and serialized per database/schema. Do not run the same migration set concurrently from every application replica. / Migration 执行必须可观测，并按数据库/Schema 串行化。不要让每个应用副本并发执行同一套 Migration。
 
-The POC's hand-reviewed `schema.mysql.sql` remains a disposable-database bootstrap only. It is not the future production migration history.
+The versioned `Migration20261117000100_CreateTradePocSchema` class is the single source of truth for the disposable POC schema. The old hand-applied SQL file was removed to avoid duplicate schema definitions.
 
-POC 中人工审查的 `schema.mysql.sql` 只用于一次性实验数据库初始化，不是未来生产环境的 Migration 历史。
+版本化的 `Migration20261117000100_CreateTradePocSchema` 类是一次性 POC Schema 的唯一事实来源。旧的手工 SQL 文件已删除，以避免重复维护 Schema 定义。
 
 ### ORM and connection lifecycle / ORM 与连接生命周期
 

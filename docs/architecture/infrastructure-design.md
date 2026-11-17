@@ -398,9 +398,9 @@ REQUIRED 传播、加入调用方事务、嵌套 Savepoint 策略、Transactiona
 
 ### Verification status / 验证状态
 
-Opt-in MySQL integration cases have been updated for query-only Repository and Register/Commit Unit of Work semantics. No typecheck, unit test, or MySQL test has been executed in the current environment. All adapter behavior remains pending local verification against the disposable `aspros_trade_poc` database.
+Opt-in MySQL integration cases now invoke the dedicated versioned migration runner before persistence tests and verify the executed/pending migration list. No typecheck, unit test, migration run, or MySQL test has been executed in the current environment. All adapter and migration behavior remains pending local verification against the disposable `aspros_trade_poc` database.
 
-已更新只读 Repository 与 Register/Commit Unit of Work 语义的可选 MySQL 集成测试。本环境尚未执行类型检查、单元测试或 MySQL 测试。所有适配器行为仍待在一次性 `aspros_trade_poc` 数据库上进行本地验证。
+可选 MySQL 集成测试现会先调用独立版本化 Migration Runner，再执行持久化测试，并检查已执行/待执行 Migration 列表。本环境尚未执行类型检查、单元测试、Migration 或 MySQL 测试。所有适配器和 Migration 行为仍待在一次性 `aspros_trade_poc` 数据库上进行本地验证。
 
 ## 10.4 Transaction Propagation Policy / 事务传播策略
 
@@ -448,9 +448,9 @@ The current POC implements one explicitly owned transaction per Unit of Work and
 - MikroORM Schema Generator is development tooling. Generated SQL must be reviewed; `schema:update` and `schema:fresh` must never run against production. / MikroORM Schema Generator 是开发工具。生成 SQL 必须审查；绝不可在生产环境运行 `schema:update` 或 `schema:fresh`。
 - Migration execution must be observable and serialized per database/schema; do not let every application replica run migrations at startup. / Migration 执行必须可观测，并按数据库/Schema 串行化；不要让每个应用副本在启动时执行 Migration。
 
-The POC's hand-reviewed `schema.mysql.sql` is only a disposable database bootstrap and is not a production migration history.
+The isolated POC now uses a versioned MikroORM Migration class as its canonical schema source. The ordinary ORM bootstrap does not register `Migrator`; a separate command-only runner applies migrations against the exact disposable `aspros_trade_poc` database. The former hand-applied `schema.mysql.sql` file has been removed to avoid maintaining two schema sources.
 
-POC 中人工审查的 `schema.mysql.sql` 只用于一次性实验数据库初始化，不是生产 Migration 历史。
+独立 POC 现以版本化 MikroORM Migration 类作为唯一 Schema 来源。普通 ORM 启动入口不注册 `Migrator`；独立命令 Runner 只对名称严格匹配的一次性 `aspros_trade_poc` 数据库执行迁移。原先需要手工执行的 `schema.mysql.sql` 已删除，避免维护两套 Schema 来源。
 
 ### ORM/connection lifecycle / ORM 与连接生命周期
 
@@ -485,6 +485,23 @@ This is a business-code layering convention and does not require every framework
 
 这是一项业务代码分层约定，并不要求框架的每项能力都必须引入全部四种对象。Infrastructure package 不定义 API VO 或应用 DTO。
 
+## 10.6 Versioned Migration Runner POC / 版本化 Migration Runner 验证
+
+The isolated POC now includes `@mikro-orm/migrations@7.2.9`, a versioned initial schema migration, and a dedicated command entrypoint. The ordinary `createTradePocOrm()` bootstrap remains migration-free. Only the explicit `poc:trade-migrate` command or the opt-in MySQL integration suite invokes the runner.
+
+独立 POC 现加入 `@mikro-orm/migrations@7.2.9`、版本化初始 Schema Migration 和独立命令入口。普通 `createTradePocOrm()` 启动入口仍完全不执行 Migration。只有显式运行 `poc:trade-migrate` 或主动启用 MySQL 集成测试时才会调用 Runner。
+
+- The runner validates the MySQL URL and exact database name `aspros_trade_poc` before connecting. / Runner 在连接前验证 MySQL URL 和数据库名称必须严格为 `aspros_trade_poc`。
+- The migration history table is `poc_schema_migrations`; the schema migration is statically registered, avoiding runtime directory discovery in this POC. / Migration 历史表为 `poc_schema_migrations`；本 POC 静态注册 Migration 类，不依赖运行时目录扫描。
+- Only `up` and `status` commands are exposed. No CLI `down`, `fresh`, or destructive schema reset command is provided. / 只开放 `up` 和 `status`；不提供 CLI `down`、`fresh` 或破坏性 Schema 重置命令。
+- MySQL DDL is configured with `transactional: false` and `allOrNothing: false`. The migration statements use `CREATE TABLE IF NOT EXISTS`; this supports safe re-entry after inspection, but does not make multi-statement DDL atomic. / MySQL DDL 配置为 `transactional: false` 和 `allOrNothing: false`。Migration 使用 `CREATE TABLE IF NOT EXISTS`，便于检查后重试，但不代表多语句 DDL 具备原子性。
+- The migration's `down()` is defined for completeness, but the runner deliberately offers no rollback command. Any destructive reversal remains a separately reviewed manual operation on disposable data. / Migration 定义了 `down()`，但 Runner 刻意不开放回滚命令。任何破坏性逆向操作都必须作为独立审查的手工操作，并且只允许针对一次性数据。
+- The former `schema.mysql.sql` duplicate source has been removed. The migration class is the single POC schema definition. / 已删除原先重复的 `schema.mysql.sql`；Migration 类是 POC 唯一 Schema 定义。
+
+This is still an experiment, not a production migration framework. Production adoption still needs reviewed migration generation, deployment serialization/locking, least-privilege credentials, observability, backup/forward-recovery procedures, and tests against a disposable MySQL instance. No migration or integration test has been executed in the current environment.
+
+这仍然只是实验，不是生产 Migration 框架。正式采用前仍需补齐 Migration 生成与审核、部署串行化/锁、最小权限凭据、可观测性、备份/向前修复流程，并在一次性 MySQL 实例上实际测试。本环境尚未执行 Migration 或集成测试。
+
 ## 11. Current Result and Next Step / 当前结论与下一步
 
 **Audited / 已审计：** tracked .NET Database, Repository, UnitOfWork, Dapper and migration design files. Transaction ownership and Domain/Infrastructure boundary risks are recorded above.
@@ -501,7 +518,7 @@ This is a business-code layering convention and does not require every framework
 
 **New finding / 新发现：** direct ORM hydration of the current Domain classes is not the preferred approach. The POC will map separate MikroORM persistence records to and from Domain objects by calling public Domain constructors and legal state-transition methods. / 不建议让 ORM 直接还原当前 Domain 类。POC 将使用独立 MikroORM 持久化记录，通过调用 Domain 公共构造函数和合法状态转换方法完成双向映射。
 
-**Next / 下一步：** after the local Docker environment is ready, verify the revised Register/Commit POC, including default non-transactional scope, explicit transaction rollback, new/dirty/deleted registration behavior, mapping and MySQL persistence. Then continue with migration runner and runtime lifecycle evaluation before promoting anything into production Infrastructure. / 本地 Docker 环境准备好后，验证修订后的 Register/Commit POC，包括默认不显式开启事务、显式事务回滚、新增/修改/删除登记行为、映射和 MySQL 持久化。之后再继续评估 Migration Runner 和运行时生命周期，最后才考虑提升到正式 Infrastructure。
+**Next / 下一步：** after the local Docker environment is ready, verify the Register/Commit and Migration Runner POCs against the disposable MySQL database, including default non-transactional scope, explicit transaction rollback, new/dirty/deleted registration, migration apply/status/idempotent rerun, and failure recovery. Then evaluate migration deployment locking and runtime lifecycle before promoting anything into production Infrastructure. / 本地 Docker 环境准备好后，在一次性 MySQL 数据库中验证 Register/Commit 与 Migration Runner POC，包括默认不显式开启事务、显式事务回滚、新增/修改/删除登记、Migration 执行/状态/幂等重跑及失败恢复。之后再评估 Migration 部署锁和运行时生命周期，最后才考虑提升到正式 Infrastructure。
 
 Application remains deferred until required Infrastructure capabilities have working implementations and verification evidence.
 

@@ -2,6 +2,7 @@ import { randomInt } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { Order, Refund, Trade } from "../../../packages/domain/examples/simple/trade.js";
 import { createTradePocOrm } from "../src/bootstrap.js";
+import { applyTradePocMigrations } from "../src/migration-runner.js";
 import { createTradePersistenceScope } from "../src/unit-of-work.js";
 import { TradeMapper } from "../src/trade-mapper.js";
 import { OrderRecord, RefundRecord, TradeRecord } from "../src/records.js";
@@ -13,7 +14,16 @@ interface PocAuditDatabase {
 const clientUrl = process.env.MYSQL_POC_DATABASE_URL;
 
 describe.skipIf(!clientUrl)("MikroORM MySQL Trade persistence", () => {
-  const ormPromise = createTradePocOrm({ clientUrl: clientUrl! });
+  const migrationResultPromise = applyTradePocMigrations({ clientUrl: clientUrl! });
+  const ormPromise = migrationResultPromise.then(() =>
+    createTradePocOrm({ clientUrl: clientUrl! }),
+  );
+
+  it("applies the versioned schema migration and leaves no pending migrations", async () => {
+    const result = await migrationResultPromise;
+    expect(result.executed).toContain("Migration20261117000100_CreateTradePocSchema");
+    expect(result.pending).toHaveLength(0);
+  });
 
   afterAll(async () => {
     const orm = await ormPromise;

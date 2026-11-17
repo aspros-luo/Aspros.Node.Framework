@@ -40,22 +40,21 @@ Use the dedicated database named `aspros_trade_poc` on a disposable MySQL instan
 
 必须在一次性 MySQL 实例中使用名为 `aspros_trade_poc` 的专用数据库。启动入口会拒绝其他数据库名称。绝不可将本实验指向生产环境或包含重要数据的数据库。
 
-Create the database explicitly, then apply the idempotent schema script:
+Create the dedicated database explicitly. The migration runner creates the POC tables and its migration-history table; it does not create the database itself.
 
-先显式创建数据库，再执行可重复运行的 Schema 脚本：
+先显式创建专用数据库。Migration Runner 会创建 POC 数据表和迁移历史表，但不会创建数据库本身：
 
 ```bash
 mysql -h 127.0.0.1 -u <user> -p -e "CREATE DATABASE IF NOT EXISTS aspros_trade_poc CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-mysql -h 127.0.0.1 -u <user> -p aspros_trade_poc < experiments/mikroorm-trade-poc/src/schema.mysql.sql
+export MYSQL_POC_DATABASE_URL='mysql://<user>:<password>@127.0.0.1:3306/aspros_trade_poc'
+pnpm poc:trade-migrate
+pnpm poc:trade-migration-status
+pnpm poc:trade-mysql
 ```
 
-Set a connection URL for that database and run the integration test:
+Migration execution is a separate explicit command. Ordinary `createTradePocOrm()` does not register the Migrator extension and never applies migrations. The runner accepts only the exact `aspros_trade_poc` database and exposes only `up` and `status`; there is deliberately no CLI rollback/fresh command.
 
-设置指向该数据库的连接 URL，然后运行集成测试：
-
-```bash
-MYSQL_POC_DATABASE_URL='mysql://<user>:<password>@127.0.0.1:3306/aspros_trade_poc' pnpm poc:trade-mysql
-```
+Migration 执行是独立的显式命令。普通 `createTradePocOrm()` 不注册 Migrator 扩展，也绝不执行 Migration。Runner 只接受名称严格匹配的 `aspros_trade_poc` 数据库，只开放 `up` 和 `status`；刻意不提供 CLI 回滚或重建命令。
 
 When `MYSQL_POC_DATABASE_URL` is absent, the integration suite is skipped; ordinary mapper tests remain runnable. The integration test creates random IDs and deletes only the rows it created.
 
@@ -65,10 +64,12 @@ When `MYSQL_POC_DATABASE_URL` is absent, the integration suite is skipped; ordin
 
 - Generic, provider-independent Repository and Unit of Work adapters. The current adapters are Trade-specific POC implementations. / 通用、独立于 Provider 的 Repository 和 Unit of Work 适配器。目前实现仅是 Trade 专用 POC。
 - Explicit transaction propagation and raw SQL sharing. / 显式事务传播和原生 SQL 共享。
-- Versioned production migrations. / 生产环境版本化 Migration。
+- Production-ready migration policy, deployment locking and release integration; the isolated POC now has a versioned migration runner. / 面向生产的 Migration 策略、部署锁和发布集成；独立 POC 已有版本化 Migration Runner。
 - Runtime test evidence from the project owner's local MySQL environment. / 项目所有者本地 MySQL 环境的实际运行证据。
 
-Schema DDL is intentionally supplied as a small, reviewable POC script. It is not a production migration strategy.
+The POC migration is an isolated schema proof, not an approved production migration strategy. MySQL DDL is not transactionally reversible; a failed multi-statement migration may leave earlier DDL applied.
+
+POC Migration 只是独立 Schema 验证，并非已批准的生产 Migration 策略。MySQL DDL 不具备事务性可逆保证；多语句 Migration 失败时，之前执行的 DDL 可能已经生效。
 
 Schema DDL 刻意以小型、可审查的 POC 脚本提供，不代表生产 Migration 策略。
 

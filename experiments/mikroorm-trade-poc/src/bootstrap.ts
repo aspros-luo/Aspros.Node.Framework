@@ -16,10 +16,9 @@ export interface TradePocOrmOptions {
  * updates, or migrates database tables.
  * Schema 生命周期刻意交由外部管理：此函数绝不创建、删除、更新或迁移数据库表。
  */
-export async function createTradePocOrm(
-  options: TradePocOrmOptions,
-) {
-  const connection = new URL(options.clientUrl);
+/** Validate the target before opening any database connection. / 建立数据库连接前验证目标。 */
+export function assertTradePocDatabaseUrl(clientUrl: string): void {
+  const connection = new URL(clientUrl);
   if (connection.protocol !== "mysql:") {
     throw new TypeError("Trade POC requires a mysql:// connection URL.");
   }
@@ -27,6 +26,12 @@ export async function createTradePocOrm(
   if (databaseName !== "aspros_trade_poc") {
     throw new TypeError("Trade POC may connect only to the dedicated aspros_trade_poc database.");
   }
+}
+
+export async function createTradePocOrm(
+  options: TradePocOrmOptions,
+) {
+  assertTradePocDatabaseUrl(options.clientUrl);
 
   return MikroORM.init({
     entities: [...tradeRecordEntities],

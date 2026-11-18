@@ -116,6 +116,29 @@ async function readMigrationStatus(
   };
 }
 
+/**
+ * Refuse a pending migration when its target tables already exist without a history record.
+ * 待执行 Migration 缺少历史记录、但目标表已存在时拒绝继续执行。
+ */
+export function assertSafeTradePocMigrationStart(
+  pendingMigrationNames: readonly string[],
+  executedMigrationNames: readonly string[],
+  existingTableNames: readonly string[],
+): void {
+  const executed = new Set(executedMigrationNames.map(normalizeMigrationName));
+  const hasUnloggedPendingMigration = pendingMigrationNames.some(
+    (name) => !executed.has(normalizeMigrationName(name)),
+  );
+
+  if (hasUnloggedPendingMigration && existingTableNames.length > 0) {
+    throw new Error([
+      "Refusing to rerun a pending migration because target POC tables already exist without an executed migration record.",
+      `Existing tables: ${[...existingTableNames].sort().join(", ")}.`,
+      "MySQL DDL may have committed before a previous run failed. Inspect the actual table definitions and migration history, then repair forward or reset this disposable POC database before retrying.",
+    ].join(" "));
+  }
+}
+
 function describeError(error: unknown): { message: string; stack?: string } {
   if (error instanceof Error) {
     return { message: error.message, ...(error.stack ? { stack: error.stack } : {}) };
@@ -146,13 +169,7 @@ export async function applyTradePocMigrations(
     )) as TableNameRow[];
     const existingTables = existingRows.map((row) => row.tableName);
 
-    if (pending.some((name) => !executed.has(name)) && existingTables.length > 0) {
-      throw new Error([
-        "Refusing to rerun a pending migration because target POC tables already exist without an executed migration record.",
-        `Existing tables: ${existingTables.sort().join(", ")}.`,
-        "MySQL DDL may have committed before a previous run failed. Inspect the actual table definitions and migration history, then repair forward or reset this disposable POC database before retrying.",
-      ].join(" "));
-    }
+    assertSafeTradePocMigrationStart(pending, [...executed], existingTables);
 
     orm.migrator.on("migrating", (migration) => {
       activeMigration = {

@@ -116,9 +116,9 @@ Domain Error 暴露稳定的机器可读代码。HTTP 映射和本地化属于�
 
 `examples/simple` 展示 Trade 聚合包含 Order 实体和 Refund 实体。Order 自身提供 `confirm()`；Trade 也提供 `confirmOrder()` 和 `refundOrder()`。示例同时展示直接调用实体行为和聚合根统一编排，两种方式都成立。这只是示例，不是框架强制规则。
 
-The example's in-memory repository and Unit of Work are demonstration-only; they do not provide durable storage or atomic transactions. A later formal demo will exercise real outer-layer adapters.
+The example focuses on Domain behavior and deliberately does not include fake Repository or Unit of Work implementations. Persistence contracts are implemented by Infrastructure adapters and demonstrated in the persistence POC; a later formal demo will exercise the verified outer-layer adapters.
 
-示例中的内存 Repository 和 Unit of Work 仅用于演示，不提供持久化存储或原子事务。后续正式 Demo 将使用真实外层适配器。
+本示例只关注领域行为，刻意不包含伪造的 Repository 或 Unit of Work 实现。持久化契约由 Infrastructure 适配器实现，并在持久化 POC 中演示；后续正式 Demo 将使用经过验证的外层适配器。
 
 ## 8. Verification / 验证
 

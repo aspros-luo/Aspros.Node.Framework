@@ -2,7 +2,7 @@ import { randomInt } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { Order, Refund, Trade } from "../../../packages/domain/examples/simple/trade.js";
 import { createTradePocOrm } from "../src/bootstrap.js";
-import { applyTradePocMigrations } from "../src/migration-runner.js";
+import { applyTradePocMigrations, getTradePocMigrationStatus } from "../src/migration-runner.js";
 import { createTradePersistenceScope } from "../src/unit-of-work.js";
 import { TradeMapper } from "../src/trade-mapper.js";
 import { OrderRecord, RefundRecord, TradeRecord } from "../src/records.js";
@@ -14,24 +14,66 @@ interface PocAuditDatabase {
 const clientUrl = process.env.MYSQL_POC_DATABASE_URL;
 
 describe.skipIf(!clientUrl)("MikroORM MySQL Trade persistence", () => {
-  const migrationResultPromise = applyTradePocMigrations({ clientUrl: clientUrl! });
-  const ormPromise = migrationResultPromise.then(() =>
-    createTradePocOrm({ clientUrl: clientUrl! }),
-  );
+  let migrationResultPromise: ReturnType<typeof applyTradePocMigrations> | undefined;
+  let ormPromise: ReturnType<typeof createTradePocOrm> | undefined;
 
-  it("applies the versioned schema migration and leaves no pending migrations", async () => {
-    const result = await migrationResultPromise;
+  const getMigrationResult = () => {
+    migrationResultPromise ??= applyTradePocMigrations({ clientUrl: clientUrl! });
+    return migrationResultPromise;
+  };
+
+  const getOrm = () => {
+    ormPromise ??= getMigrationResult().then(() =>
+      createTradePocOrm({ clientUrl: clientUrl! }),
+    );
+    return ormPromise;
+  };
+
+  it("keeps status read-only and applies the versioned schema migration", async () => {
+    const probe = await createTradePocOrm({ clientUrl: clientUrl! });
+    try {
+      const beforeRows = (await probe.em.getConnection().execute(
+        `SELECT TABLE_NAME AS tableName
+           FROM information_schema.TABLES
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = ?`,
+        ["poc_schema_migrations"],
+        "all",
+      )) as Array<{ tableName: string }>;
+
+      const status = await getTradePocMigrationStatus({ clientUrl: clientUrl! });
+
+      const afterRows = (await probe.em.getConnection().execute(
+        `SELECT TABLE_NAME AS tableName
+           FROM information_schema.TABLES
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = ?`,
+        ["poc_schema_migrations"],
+        "all",
+      )) as Array<{ tableName: string }>;
+
+      expect(status.historyTableExists).toBe(beforeRows.length > 0);
+      expect(afterRows.length).toBe(beforeRows.length);
+      expect(status.historyTableExists).toBe(afterRows.length > 0);
+    } finally {
+      await probe.close(true);
+    }
+
+    const result = await getMigrationResult();
     expect(result.executed).toContain("Migration20261117000100_CreateTradePocSchema");
     expect(result.pending).toHaveLength(0);
+    expect(result.schemaState).toBe("applied");
   });
 
   afterAll(async () => {
-    const orm = await ormPromise;
-    await orm.close(true);
+    if (ormPromise) {
+      const orm = await getOrm();
+      await orm.close(true);
+    }
   });
 
   it("persists and reloads a complete aggregate in a fresh EntityManager", async () => {
-    const orm = await ormPromise;
+    const orm = await getOrm();
     const idBase = randomInt(100, 1_000_000_000);
     const tradeId = idBase;
     const pendingOrderId = idBase + 1;
@@ -99,7 +141,7 @@ describe.skipIf(!clientUrl)("MikroORM MySQL Trade persistence", () => {
   });
 
   it("saves and reloads through the Repository and Unit of Work adapters", async () => {
-    const orm = await ormPromise;
+    const orm = await getOrm();
     const idBase = randomInt(100, 1_000_000_000);
     const tradeId = idBase;
     const orderId = idBase + 1;
@@ -148,7 +190,7 @@ describe.skipIf(!clientUrl)("MikroORM MySQL Trade persistence", () => {
 
 
   it("deletes an aggregate only when Unit of Work commits a registered deletion", async () => {
-    const orm = await ormPromise;
+    const orm = await getOrm();
     const idBase = randomInt(100, 1_000_000_000);
     const tradeId = idBase;
     const orderId = idBase + 1;
@@ -188,7 +230,7 @@ describe.skipIf(!clientUrl)("MikroORM MySQL Trade persistence", () => {
   });
 
   it("discards registered changes and rolls back explicit SQL work", async () => {
-    const orm = await ormPromise;
+    const orm = await getOrm();
     const idBase = randomInt(100, 1_000_000_000);
     const tradeId = idBase;
     const orderId = idBase + 1;
@@ -230,7 +272,7 @@ describe.skipIf(!clientUrl)("MikroORM MySQL Trade persistence", () => {
 
 
   it("updates an existing aggregate and appends a Refund through Unit of Work registration", async () => {
-    const orm = await ormPromise;
+    const orm = await getOrm();
     const idBase = randomInt(100, 1_000_000_000);
     const tradeId = idBase;
     const orderId = idBase + 1;

@@ -252,9 +252,9 @@ Reasons / 原因：
 | Dapper-like API / Dapper 类 API | Add a small `IRawSqlExecutor` only when a real query requires it; adapt `EntityManager.execute` so it uses the active transaction. / 仅在真实查询需要时增加精简 `IRawSqlExecutor`；适配 `EntityManager.execute` 并确保复用活动事务。 |
 | Explicit multi-operation transaction / 多操作显式事务 | Use a callback-based transaction scope. The future Application layer owns its port; Infrastructure provides the MikroORM implementation. / 使用回调式事务范围；未来 Application 拥有端口，Infrastructure 提供 MikroORM 实现。 |
 
-**Do not add `beginTransaction()` to Domain's current `IUnitOfWork` just to mirror .NET.** The existing Domain contract intentionally contains only `commit()` and `rollback()`. A wider transaction boundary should be a separate callback-based port owned by the layer that needs it.
+The Domain `IUnitOfWork` includes an explicit, opt-in `beginTransaction()` operation. The Unit of Work owns only the transaction it starts; it does not expose provider transaction handles or propagation enums. Joining an ambient transaction, nested savepoints, and REQUIRES_NEW remain deferred until a concrete Application use case requires them and dedicated tests can define their behavior.
 
-**不要为了模仿 .NET 就给当前 Domain 的 `IUnitOfWork` 增加 `beginTransaction()`。** 现有 Domain 契约有意只包含 `commit()` 和 `rollback()`。更大范围的事务边界应由真正需要它的层定义独立回调式端口。
+Domain 的 `IUnitOfWork` 包含显式、可选的 `beginTransaction()` 操作。Unit of Work 只拥有自己开启的事务，不暴露供应商事务句柄或传播枚举。加入环境事务、嵌套 Savepoint 和 REQUIRES_NEW 暂缓实现，直到具体 Application 用例确实需要，并且有专门测试明确其行为。
 
 ### 9.4 Transaction Semantics / 事务语义
 
@@ -284,7 +284,7 @@ MikroORM is not approved as the framework's default provider until all checks pa
 1. **Domain isolation / Domain 隔离** — Map existing Domain classes externally; Domain must not import MikroORM or carry ORM decorators. / 在外部映射现有 Domain 类；Domain 不得导入 MikroORM 或携带 ORM Decorator。
 2. **Aggregate restoration / 聚合还原** — Load Trade with Order and Refund state, then verify its behavior and invariants. / 加载包含 Order 和 Refund 状态的 Trade，再验证行为和不变量。
 3. **Constructor/private state / 构造函数与私有状态** — Verify constructors, private fields/accessors and hydration. MikroORM normally skips constructors for managed entities unless explicitly configured; this must be reconciled with Domain invariants. / 验证构造函数、私有字段/访问器和实体还原；MikroORM 默认加载托管实体时不调用构造函数，必须证明这与 Domain 不变量兼容。
-4. **Repository semantics / Repository 语义** — `findById` restores all state required by aggregate invariants; `save` handles both new and loaded aggregates. / `findById` 恢复不变量所需状态；`save` 正确处理新聚合和已加载聚合。
+4. **Repository semantics / Repository 语义** — Repository is query-only; `findById` restores the complete aggregate state required by its invariants. New/dirty/deleted persistence intent is registered with Unit of Work and written only by Commit. / Repository 只负责查询；`findById` 恢复维护聚合不变量所需的完整状态。新增/修改/删除意图通过 Unit of Work 登记，并且只由 Commit 执行持久化。
 5. **UoW failure lifecycle / UoW 失败生命周期** — Verify flush, failed flush, rollback, context abandonment and reload. / 验证 Flush、Flush 失败、回滚、上下文放弃和重新加载。
 6. **Shared transaction / 共享事务** — In one transaction, perform an ORM write and raw SQL write; force a failure and prove both roll back. / 在同一事务中执行 ORM 和原生 SQL 写入；人为制造失败，证明两者都回滚。
 7. **Propagation/ownership / 传播与所有权** — Verify REQUIRED/join-existing behavior and ensure inner components never commit outer transactions. / 验证 REQUIRED/加入现有事务，并确保内部组件不会提交外层事务。

@@ -52,9 +52,13 @@ pnpm poc:trade-migration-status
 pnpm poc:trade-mysql
 ```
 
-Migration execution is a separate explicit command. Ordinary `createTradePocOrm()` does not register the Migrator extension and never applies migrations. The runner accepts only the exact `aspros_trade_poc` database and exposes only `up` and `status`; there is deliberately no CLI rollback/fresh command.
+Migration execution is a separate explicit command. Ordinary `createTradePocOrm()` does not register the Migrator extension and never applies migrations. The runner accepts only the exact `aspros_trade_poc` database and exposes only `up` and `status`; there is deliberately no CLI rollback/fresh command. The `status` command reads `information_schema` and the history table directly without initializing Migrator or creating the history table.
 
-Migration 执行是独立的显式命令。普通 `createTradePocOrm()` 不注册 Migrator 扩展，也绝不执行 Migration。Runner 只接受名称严格匹配的 `aspros_trade_poc` 数据库，只开放 `up` 和 `status`；刻意不提供 CLI 回滚或重建命令。
+Migration 执行是独立的显式命令。普通 `createTradePocOrm()` 不注册 Migrator 扩展，也绝不执行 Migration。Runner 只接受名称严格匹配的 `aspros_trade_poc` 数据库，只开放 `up` 和 `status`；刻意不提供 CLI 回滚或重建命令。`status` 直接读取 `information_schema` 和历史表，不初始化 Migrator，也不会创建历史表。
+
+**Failure recovery / 失败恢复：** MySQL DDL may be committed statement by statement. Before applying a pending migration, the runner checks whether any target POC tables already exist without a matching migration-history entry. If so, it refuses automatic rerun and prints the existing table names. Inspect the real DDL and history first; on this disposable POC database, either repair forward deliberately or reset only the POC schema before retrying. The guard detects table-name residue, not column/index/constraint drift.
+
+**失败恢复：** MySQL DDL 可能逐条语句提交。执行待处理 Migration 前，Runner 会检查是否存在目标 POC 表，但历史表中没有对应的已执行记录。若发现这种情况，就拒绝自动重跑并输出残留表名。必须先检查真实 DDL 和历史记录；对于这个一次性 POC 数据库，应明确选择向前修复，或仅重置 POC Schema 后再重试。该保护只检测表名残留，不检测列、索引或约束漂移。
 
 **Concurrency boundary / 并发边界：** Do not run `poc:trade-migrate` concurrently from multiple terminals, CI jobs, or deployment replicas. This POC runner does not acquire a distributed/database migration lock. Its caller must serialize execution. Production orchestration must provide a database/schema-scoped deployment mutex before invoking a migration process.
 
@@ -71,9 +75,9 @@ When `MYSQL_POC_DATABASE_URL` is absent, the integration suite is skipped; ordin
 - Production deployment orchestration and cross-process migration locking. The POC runner is intended for one explicitly serialized operator/deployment process only. / 生产部署编排和跨进程 Migration 互斥。当前 POC Runner 仅供单个、明确串行化的操作者/部署进程使用。
 - Runtime test evidence from the project owner's local MySQL environment. / 项目所有者本地 MySQL 环境的实际运行证据。
 
-The POC migration is an isolated schema proof, not an approved production migration strategy. MySQL DDL is not transactionally reversible; a failed multi-statement migration may leave earlier DDL applied.
+The POC migration is an isolated schema proof, not an approved production migration strategy. MySQL DDL is not transactionally reversible; a failed multi-statement migration may leave earlier DDL applied. A successful `CREATE TABLE IF NOT EXISTS` only confirms that a table name exists; it does not validate the table's columns, indexes, or constraints.
 
-POC Migration 只是独立 Schema 验证，并非已批准的生产 Migration 策略。MySQL DDL 不具备事务性可逆保证；多语句 Migration 失败时，之前执行的 DDL 可能已经生效。
+POC Migration 只是独立 Schema 验证，并非已批准的生产 Migration 策略。MySQL DDL 不具备事务性可逆保证；多语句 Migration 失败时，之前执行的 DDL 可能已经生效。成功执行 `CREATE TABLE IF NOT EXISTS` 只能确认表名存在，并不验证表的列、索引或约束是否正确。
 
 
 ## Repository and Unit of Work POC / Repository 与 Unit of Work 验证

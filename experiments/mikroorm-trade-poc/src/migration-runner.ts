@@ -7,20 +7,20 @@ import { tradeRecordEntities } from "./records.js";
 const migrationHistoryTable = "poc_schema_migrations";
 
 /**
- * Migration impact metadata is used only for safe recovery checks.
+ * Migration-created-table metadata is used only for safe recovery checks.
  * It is not a second schema definition; the Migration class remains the DDL source of truth.
  * Migration 影响范围元数据只用于安全恢复检查，不是第二份 Schema 定义；DDL 仍以 Migration 类为准。
  */
 const migrationDefinitions = [
   {
     migration: Migration20261117000100_CreateTradePocSchema,
-    targetTables: ["trades", "orders", "refunds", "poc_audit"],
+    createdTables: ["trades", "orders", "refunds", "poc_audit"],
   },
 ] as const;
 
 const migrationNames = migrationDefinitions.map(({ migration }) => migration.name);
 const expectedSchemaTables = [
-  ...new Set(migrationDefinitions.flatMap(({ targetTables }) => targetTables)),
+  ...new Set(migrationDefinitions.flatMap(({ createdTables }) => createdTables)),
 ];
 
 export type TradePocSchemaState =
@@ -49,7 +49,7 @@ interface MigrationNameRow {
 
 interface PendingMigrationTarget {
   readonly name: string;
-  readonly targetTables: readonly string[];
+  readonly createdTables: readonly string[];
 }
 
 function normalizeMigrationName(name: string): string {
@@ -125,7 +125,7 @@ async function readMigrationStatus(
   const appliedDefinitions = migrationDefinitions.filter(({ migration }) =>
     executedSet.has(migration.name),
   );
-  const appliedTables = new Set(appliedDefinitions.flatMap(({ targetTables }) => targetTables));
+  const appliedTables = new Set(appliedDefinitions.flatMap(({ createdTables }) => createdTables));
   const missingAppliedTables = [...appliedTables].filter((tableName) => !existingSet.has(tableName));
   const unloggedExistingTables = existingSchemaTables.filter((tableName) => !appliedTables.has(tableName));
 
@@ -151,7 +151,7 @@ async function readMigrationStatus(
 }
 
 /**
- * Refuse only when a pending migration's own target tables already exist.
+ * Refuse only when a pending migration's declared newly created tables already exist.
  * 仅当待执行 Migration 自己负责的目标表已经存在时才拒绝执行。
  */
 export function assertSafeTradePocMigrationStart(
@@ -160,11 +160,11 @@ export function assertSafeTradePocMigrationStart(
 ): void {
   const existing = new Set(existingTableNames);
   for (const migration of pendingMigrations) {
-    const conflicts = migration.targetTables.filter((tableName) => existing.has(tableName));
+    const conflicts = migration.createdTables.filter((tableName) => existing.has(tableName));
     if (conflicts.length > 0) {
       throw new Error([
-        `Refusing to run pending migration "${migration.name}" because its target tables already exist without an executed migration record.`,
-        `Conflicting tables: ${[...conflicts].sort().join(", ")}.`,
+        `Refusing to run pending migration "${migration.name}" because tables it is expected to create already exist without an executed migration record.`,
+        `Existing tables that this migration would create: ${[...conflicts].sort().join(", ")}.`,
         "MySQL DDL may have committed before a previous run failed. Inspect the actual table definitions and migration history, then repair forward or reset only this disposable POC schema before retrying.",
       ].join(" "));
     }
@@ -196,7 +196,7 @@ export async function applyTradePocMigrations(
       if (!definition) {
         throw new Error(`No recovery metadata is registered for pending migration "${name}".`);
       }
-      return { name, targetTables: definition.targetTables };
+      return { name, createdTables: definition.createdTables };
     });
 
     const existingRows = (await orm.em.getConnection().execute(

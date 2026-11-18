@@ -45,9 +45,9 @@ Infrastructure foundations are built and validated before Application use cases 
 
 ## Domain Example / Domain 示例
 
-The first Domain package includes a focused Trade / Order / Refund example under `packages/domain/examples/simple`. It demonstrates contracts and domain behavior; its in-memory adapters are not production infrastructure.
+The first Domain package includes a focused Trade / Order / Refund example under `packages/domain/examples/simple`. It demonstrates entity behavior, aggregate-root orchestration, domain errors and domain events. Persistence is intentionally outside this example and belongs to Infrastructure.
 
-首版 Domain 在 `packages/domain/examples/simple` 中包含 Trade / Order / Refund 示例，用于展示契约和领域行为；其中的内存适配器不是生产级基础设施。
+首版 Domain 在 `packages/domain/examples/simple` 中包含 Trade / Order / Refund 示例，用于展示实体行为、聚合根编排、领域错误和领域事件。示例刻意不包含持久化实现；持久化职责属于 Infrastructure。
 
 ## Workspace Commands / 工作区命令
 

@@ -21,7 +21,9 @@ This package does not implement persistence, transactions, messaging, HTTP, or r
 
 ## Examples / 示例
 
-See [the Trade / Order / Refund example](./examples/simple/README.md).
+See [the Trade / Order / Refund example](./examples/simple/README.md). It focuses on domain behavior; persistence and Unit of Work implementations belong to Infrastructure.
+
+参见 [Trade / Order / Refund 示例](./examples/simple/README.md)。示例只关注领域行为；持久化和 Unit of Work 实现属于 Infrastructure。
 
 参见 [Trade / Order / Refund 示例](./examples/simple/README.md)。
 

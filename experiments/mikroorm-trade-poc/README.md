@@ -40,9 +40,9 @@ Use the dedicated database named `aspros_trade_poc` on a disposable MySQL instan
 
 必须在一次性 MySQL 实例中使用名为 `aspros_trade_poc` 的专用数据库。启动入口会拒绝其他数据库名称。绝不可将本实验指向生产环境或包含重要数据的数据库。
 
-Create the dedicated database explicitly. The migration runner creates the POC tables and its migration-history table; it does not create the database itself.
+Create the dedicated database explicitly. Database/server provisioning is an operator or deployment responsibility; this framework experiment never creates a database. The migration runner creates only the POC tables and its migration-history table inside the already existing database.
 
-先显式创建专用数据库。Migration Runner 会创建 POC 数据表和迁移历史表，但不会创建数据库本身：
+必须先由操作者或部署流程显式创建专用数据库。数据库实例和 Database 本身的创建属于运维/部署职责；本框架实验绝不创建 Database。Migration Runner 只会在已经存在的数据库内部创建 POC 数据表和迁移历史表：
 
 ```bash
 mysql -h 127.0.0.1 -u <user> -p -e "CREATE DATABASE IF NOT EXISTS aspros_trade_poc CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
@@ -56,11 +56,11 @@ Migration execution is a separate explicit command. Ordinary `createTradePocOrm(
 
 Migration 执行是独立的显式命令。普通 `createTradePocOrm()` 不注册 Migrator 扩展，也绝不执行 Migration。Runner 只接受名称严格匹配的 `aspros_trade_poc` 数据库，只开放 `up` 和 `status`；刻意不提供 CLI 回滚或重建命令。`status` 直接读取 `information_schema` 和历史表，不初始化 Migrator，也不会创建历史表。
 
-**Failure recovery / 失败恢复：** MySQL DDL may be committed statement by statement. Before applying a pending migration, the runner checks whether any target POC tables already exist without a matching migration-history entry. If so, it refuses automatic rerun and prints the existing table names. Inspect the real DDL and history first; on this disposable POC database, either repair forward deliberately or reset only the POC schema before retrying. The guard detects table-name residue, not column/index/constraint drift.
+**Failure recovery / 失败恢复：** MySQL DDL may be committed statement by statement. Each registered migration declares the table names it is responsible for as recovery-scope metadata; the Migration class remains the only DDL source of truth. Before applying pending migrations, the runner checks each migration only against its own target tables. Existing tables owned by earlier, successfully applied migrations do not block a later migration. If a pending migration's own target table already exists without a matching history entry, the runner refuses automatic rerun. Inspect the real DDL and history first; on this disposable POC database, either repair forward deliberately or reset only the POC schema before retrying. The guard detects table-name residue, not column/index/constraint drift.
 
-**失败恢复：** MySQL DDL 可能逐条语句提交。执行待处理 Migration 前，Runner 会检查是否存在目标 POC 表，但历史表中没有对应的已执行记录。若发现这种情况，就拒绝自动重跑并输出残留表名。必须先检查真实 DDL 和历史记录；对于这个一次性 POC 数据库，应明确选择向前修复，或仅重置 POC Schema 后再重试。该保护只检测表名残留，不检测列、索引或约束漂移。
+**失败恢复：** MySQL DDL 可能逐条语句提交。每个已注册 Migration 都声明自己负责的表名，作为失败恢复范围元数据；Migration 类仍然是唯一 DDL 来源。执行待处理 Migration 前，Runner 只检查该 Migration 自己负责的目标表。之前已成功执行的 Migration 所创建的表，不会阻止后续 Migration 执行。如果某个待执行 Migration 自己负责的表已经存在、但没有对应的执行历史，Runner 就拒绝自动重跑。必须先检查真实 DDL 和历史记录；对于这个一次性 POC 数据库，应明确选择向前修复，或仅重置 POC Schema 后再重试。该保护只检测表名残留，不检测列、索引或约束漂移。
 
-The status output distinguishes `not-applied`, `partially-created-or-unlogged`, `applied`, and `inconsistent`. These states are based on migration-history rows and expected table names only; they do not prove that column definitions, indexes, foreign keys, or data are correct. Migration execution writes structured JSON lifecycle events to stdout/stderr, including start, completion duration, and failure details.
+The status output distinguishes `not-applied`, `pending`, `partially-created-or-unlogged`, `applied`, and `inconsistent`. A normal later migration waiting to run is reported as `pending`; `inconsistent` means a table owned by an executed migration is missing. These states are based on migration-history rows and declared target table names only; they do not prove that column definitions, indexes, foreign keys, or data are correct. Migration execution writes structured JSON lifecycle events to stdout/stderr, including start, completion duration, and failure details.
 
 Status 输出区分 `not-applied`、`partially-created-or-unlogged`、`applied` 和 `inconsistent`。这些状态只根据 Migration 历史记录和预期表名判断；不能证明列定义、索引、外键或数据正确。Migration 执行会向 stdout/stderr 输出结构化 JSON 生命周期事件，包括开始、完成耗时和失败详情。
 

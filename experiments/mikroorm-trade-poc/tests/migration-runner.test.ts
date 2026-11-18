@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { assertSafeTradePocMigrationStart } from "../src/migration-runner.js";
+import {
+  assertKnownTradePocMigrations,
+  assertSafeTradePocMigrationStart,
+  findUnknownTradePocMigrations,
+} from "../src/migration-runner.js";
 
 describe("Trade POC migration recovery guard", () => {
   it("allows a first migration when none of its declared new tables exist", () => {
@@ -80,5 +84,44 @@ describe("Trade POC migration recovery guard", () => {
     expect(() =>
       assertSafeTradePocMigrationStart([], ["trades", "orders", "refunds"]),
     ).not.toThrow();
+  });
+});
+
+
+describe("Trade POC migration history compatibility", () => {
+  it("recognizes migration history entries registered by this application version", () => {
+    expect(findUnknownTradePocMigrations([
+      "Migration20261117000100_CreateTradePocSchema",
+    ])).toEqual([]);
+    expect(() => assertKnownTradePocMigrations([
+      "Migration20261117000100_CreateTradePocSchema",
+    ])).not.toThrow();
+  });
+
+  it("reports and refuses migration history entries unknown to this application version", () => {
+    const executed = [
+      "Migration20261117000100_CreateTradePocSchema",
+      "Migration20261118000200_AddOutbox",
+    ];
+
+    expect(findUnknownTradePocMigrations(executed)).toEqual([
+      "Migration20261118000200_AddOutbox",
+    ]);
+    expect(() => assertKnownTradePocMigrations(executed)).toThrow(
+      /unknown to this application version.*Migration20261118000200_AddOutbox/i,
+    );
+  });
+
+  it("normalizes migration file extensions before comparing history", () => {
+    expect(findUnknownTradePocMigrations([
+      "Migration20261117000100_CreateTradePocSchema.js",
+    ])).toEqual([]);
+  });
+
+  it("does not report the same unknown migration more than once", () => {
+    expect(findUnknownTradePocMigrations([
+      "Migration20261118000200_AddOutbox",
+      "Migration20261118000200_AddOutbox.js",
+    ])).toEqual(["Migration20261118000200_AddOutbox"]);
   });
 });

@@ -60,6 +60,10 @@ Migration 执行是独立的显式命令。普通 `createTradePocOrm()` 不注�
 
 **失败恢复：** MySQL DDL 可能逐条语句提交。执行待处理 Migration 前，Runner 会检查是否存在目标 POC 表，但历史表中没有对应的已执行记录。若发现这种情况，就拒绝自动重跑并输出残留表名。必须先检查真实 DDL 和历史记录；对于这个一次性 POC 数据库，应明确选择向前修复，或仅重置 POC Schema 后再重试。该保护只检测表名残留，不检测列、索引或约束漂移。
 
+The status output distinguishes `not-applied`, `partially-created-or-unlogged`, `applied`, and `inconsistent`. These states are based on migration-history rows and expected table names only; they do not prove that column definitions, indexes, foreign keys, or data are correct. Migration execution writes structured JSON lifecycle events to stdout/stderr, including start, completion duration, and failure details.
+
+Status 输出区分 `not-applied`、`partially-created-or-unlogged`、`applied` 和 `inconsistent`。这些状态只根据 Migration 历史记录和预期表名判断；不能证明列定义、索引、外键或数据正确。Migration 执行会向 stdout/stderr 输出结构化 JSON 生命周期事件，包括开始、完成耗时和失败详情。
+
 **Concurrency boundary / 并发边界：** Do not run `poc:trade-migrate` concurrently from multiple terminals, CI jobs, or deployment replicas. This POC runner does not acquire a distributed/database migration lock. Its caller must serialize execution. Production orchestration must provide a database/schema-scoped deployment mutex before invoking a migration process.
 
 **并发边界：** 不要从多个终端、CI Job 或部署副本并发运行 `poc:trade-migrate`。当前 POC Runner 不获取分布式锁或数据库 Migration 锁，调用方必须保证串行执行。生产部署编排必须在启动 Migration 进程前，提供按数据库/Schema 作用域隔离的部署互斥锁。

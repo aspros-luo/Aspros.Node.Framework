@@ -8,7 +8,7 @@ describe("Trade POC migration recovery guard", () => {
         [
           {
             name: "Migration001_CreateTradeSchema",
-            targetTables: ["trades", "orders"],
+            createdTables: ["trades", "orders"],
           },
         ],
         [],
@@ -22,7 +22,7 @@ describe("Trade POC migration recovery guard", () => {
         [
           {
             name: "Migration002_AddPayments",
-            targetTables: ["payments", "payment_events"],
+            createdTables: ["payments", "payment_events"],
           },
         ],
         ["trades", "payments"],
@@ -36,7 +36,7 @@ describe("Trade POC migration recovery guard", () => {
         [
           {
             name: "Migration002_AddPayments",
-            targetTables: ["payments", "payment_events"],
+            createdTables: ["payments", "payment_events"],
           },
         ],
         ["trades", "orders"],
@@ -50,11 +50,11 @@ describe("Trade POC migration recovery guard", () => {
         [
           {
             name: "Migration002_AddPayments",
-            targetTables: ["payments"],
+            createdTables: ["payments"],
           },
           {
             name: "Migration003_AddOutbox",
-            targetTables: ["outbox_messages"],
+            createdTables: ["outbox_messages"],
           },
         ],
         ["trades", "outbox_messages"],

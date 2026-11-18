@@ -52,11 +52,14 @@ The first Domain package includes a focused Trade / Order / Refund example under
 ## Workspace Commands / 工作区命令
 
 - `pnpm install`
-- `pnpm check`
+- `pnpm check` — type-checks Domain, Infrastructure and the active persistence POC; runs Domain and POC unit tests; then builds the publishable workspace packages. / 对 Domain、Infrastructure 和当前持久化 POC 执行类型检查；运行 Domain 与 POC 单元测试；最后构建工作区 package。
+- `pnpm poc:trade-mapping` — runs only the Trade mapper tests. / 仅运行 Trade Mapper 测试。
+- `pnpm poc:trade-unit` — runs all fast POC unit tests, excluding MySQL integration. / 运行全部快速 POC 单元测试，不包含 MySQL 集成测试。
+- `pnpm poc:trade-mysql` — explicitly runs the opt-in MySQL integration suite. / 显式运行可选 MySQL 集成测试。
 
-The Infrastructure package currently participates in type checking and build. Its capability-specific tests will be added together with the first real adapter; the current test command runs the Domain test suite only.
+The default check never requires a running MySQL server. External-service integration tests remain explicit opt-in commands so a developer's local environment cannot silently change the scope of the normal check.
 
-Infrastructure package 当前参与类型检查和构建。能力专项测试将在首个真实适配器落地时同步加入；当前测试命令仅运行 Domain 测试集。
+默认检查不要求启动 MySQL 服务。外部服务集成测试保持为显式选择的命令，避免开发者本地环境悄悄改变常规检查范围。
 
 ## Documentation / 文档
 

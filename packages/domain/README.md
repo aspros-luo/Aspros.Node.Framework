@@ -25,8 +25,6 @@ See [the Trade / Order / Refund example](./examples/simple/README.md). It focuse
 
 参见 [Trade / Order / Refund 示例](./examples/simple/README.md)。示例只关注领域行为；持久化和 Unit of Work 实现属于 Infrastructure。
 
-参见 [Trade / Order / Refund 示例](./examples/simple/README.md)。
-
 ## Commands / 命令
 
 Run from the repository root after installing workspace dependencies:

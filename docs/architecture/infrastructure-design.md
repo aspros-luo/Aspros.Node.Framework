@@ -402,6 +402,27 @@ Opt-in MySQL integration cases now invoke the dedicated versioned migration runn
 
 可选 MySQL 集成测试现会先调用独立版本化 Migration Runner，再执行持久化测试，并检查已执行/待执行 Migration 列表。本环境尚未执行类型检查、单元测试、Migration 或 MySQL 测试。所有适配器和 Migration 行为仍待在一次性 `aspros_trade_poc` 数据库上进行本地验证。
 
+## 10.3 Object Model Boundaries / 对象模型边界
+
+The framework distinguishes persistence records (DO), domain objects, application transfer models (DTO), and API view models (VO). These names describe different responsibilities; they are not interchangeable aliases for one shared class.
+
+框架区分持久化记录（DO）、领域对象、应用传输模型（DTO）和 API 视图模型（VO）。这些名称代表不同职责，不应成为同一个共享类的不同别名。
+
+- **DO / Persistence Record** belongs to Infrastructure and describes the selected storage shape. It may flatten a Domain Value Object into columns, store it as JSON, split one domain concept across tables, or combine several domain concepts where persistence requires it. / **DO / 持久化记录** 属于 Infrastructure，描述选定的存储结构。它可以将 Domain Value Object 展开为多个字段、存储为 JSON，也可以按持久化需要拆分或合并领域概念。
+- **Domain Model** owns business meaning, behavior, identity, invariants, and aggregate boundaries. It must not depend on ORM metadata or database schema. / **Domain Model** 拥有业务语义、行为、身份、不变量和聚合边界，不依赖 ORM 元数据或数据库 Schema。
+- **DTO** is introduced at an actual transfer boundary, such as an application command/query contract or an external service contract. It is not a universal object reused by every layer. / **DTO** 只在真实的数据传输边界引入，例如应用命令/查询契约或外部服务契约，不是供所有层复用的万能对象。
+- **VO / View Object** belongs to the API/presentation boundary and is shaped for a particular response. One Domain aggregate may have multiple response models. / **VO / View Object** 属于 API/表现层边界，按具体响应场景设计；一个领域聚合可以对应多个响应模型。
+- **Mapper / Assembler** performs explicit conversions at boundaries. Infrastructure owns persistence-to-domain mapping; API/presentation code owns domain/query-result-to-response mapping. / **Mapper / Assembler** 在边界处执行显式转换。Infrastructure 负责持久化模型与领域模型的映射；API/表现层代码负责领域对象或查询结果到 API 响应模型的映射。
+
+The common reconstitution/read path is database rows → DO/persistence records → Domain aggregate → application result/DTO → API response VO. A command/write path runs in the opposite direction: API request DTO → Application → Domain behavior → persistence mapping/DO → database. Read queries may use a purpose-built read model and need not reconstruct a Domain aggregate when no domain behavior or invariant is being executed. Storage technologies such as Redis and ClickHouse are not automatically authoritative sources for reconstructing transactional aggregates; authority and consistency must be explicit per use case.
+
+常见的还原/读取路径为：数据库记录 → DO/持久化记录 → Domain 聚合 → 应用结果/DTO → API 响应 VO。命令/写入路径则反向执行：API 请求 DTO → Application → Domain 行为 → 持久化映射/DO → 数据库。若查询不执行领域行为或维护领域不变量，可以使用专用读模型，无需还原 Domain 聚合。Redis、ClickHouse 等存储不会自动成为事务聚合的权威还原来源；必须针对具体用例明确数据权威性和一致性。
+
+
+This is a business-code layering convention and does not require every framework capability to introduce all four object types. The Infrastructure package must not define API VOs or application DTOs.
+
+这是一项业务代码分层约定，并不要求框架的每项能力都必须引入全部四种对象。Infrastructure package 不定义 API VO 或应用 DTO。
+
 ## 10.4 Transaction Propagation Policy / 事务传播策略
 
 The current `TradePersistenceScope` forks an isolated EntityManager but does not open a transaction. A transaction is opened only when `beginTransaction()` is explicitly called on its Unit of Work. This keeps the default persistence lifecycle aligned with Register → Commit while allowing multiple operations to share one owned transaction when required.
@@ -482,26 +503,6 @@ These lifecycle concerns belong to Node Infrastructure; Domain remains independe
 
 这些生命周期职责属于 Node Infrastructure；Domain 不依赖 Node API、连接池或 ORM 类型。
 
-## 10.3 Object Model Boundaries / 对象模型边界
-
-The framework distinguishes persistence records (DO), domain objects, application transfer models (DTO), and API view models (VO). These names describe different responsibilities; they are not interchangeable aliases for one shared class.
-
-框架区分持久化记录（DO）、领域对象、应用传输模型（DTO）和 API 视图模型（VO）。这些名称代表不同职责，不应成为同一个共享类的不同别名。
-
-- **DO / Persistence Record** belongs to Infrastructure and describes the selected storage shape. It may flatten a Domain Value Object into columns, store it as JSON, split one domain concept across tables, or combine several domain concepts where persistence requires it. / **DO / 持久化记录** 属于 Infrastructure，描述选定的存储结构。它可以将 Domain Value Object 展开为多个字段、存储为 JSON，也可以按持久化需要拆分或合并领域概念。
-- **Domain Model** owns business meaning, behavior, identity, invariants, and aggregate boundaries. It must not depend on ORM metadata or database schema. / **Domain Model** 拥有业务语义、行为、身份、不变量和聚合边界，不依赖 ORM 元数据或数据库 Schema。
-- **DTO** is introduced at an actual transfer boundary, such as an application command/query contract or an external service contract. It is not a universal object reused by every layer. / **DTO** 只在真实的数据传输边界引入，例如应用命令/查询契约或外部服务契约，不是供所有层复用的万能对象。
-- **VO / View Object** belongs to the API/presentation boundary and is shaped for a particular response. One Domain aggregate may have multiple response models. / **VO / View Object** 属于 API/表现层边界，按具体响应场景设计；一个领域聚合可以对应多个响应模型。
-- **Mapper / Assembler** performs explicit conversions at boundaries. Infrastructure owns persistence-to-domain mapping; API/presentation code owns domain/query-result-to-response mapping. / **Mapper / Assembler** 在边界处执行显式转换。Infrastructure 负责持久化模型与领域模型的映射；API/表现层代码负责领域对象或查询结果到 API 响应模型的映射。
-
-The common reconstitution/read path is database rows → DO/persistence records → Domain aggregate → application result/DTO → API response VO. A command/write path runs in the opposite direction: API request DTO → Application → Domain behavior → persistence mapping/DO → database. Read queries may use a purpose-built read model and need not reconstruct a Domain aggregate when no domain behavior or invariant is being executed. Storage technologies such as Redis and ClickHouse are not automatically authoritative sources for reconstructing transactional aggregates; authority and consistency must be explicit per use case.
-
-常见的还原/读取路径为：数据库记录 → DO/持久化记录 → Domain 聚合 → 应用结果/DTO → API 响应 VO。命令/写入路径则反向执行：API 请求 DTO → Application → Domain 行为 → 持久化映射/DO → 数据库。若查询不执行领域行为或维护领域不变量，可以使用专用读模型，无需还原 Domain 聚合。Redis、ClickHouse 等存储不会自动成为事务聚合的权威还原来源；必须针对具体用例明确数据权威性和一致性。
-
-
-This is a business-code layering convention and does not require every framework capability to introduce all four object types. The Infrastructure package must not define API VOs or application DTOs.
-
-这是一项业务代码分层约定，并不要求框架的每项能力都必须引入全部四种对象。Infrastructure package 不定义 API VO 或应用 DTO。
 
 ## 10.6 Versioned Migration Runner POC / 版本化 Migration Runner 验证
 

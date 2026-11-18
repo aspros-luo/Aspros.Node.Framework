@@ -455,6 +455,21 @@ The isolated POC now uses a versioned MikroORM Migration class as its canonical 
 
 独立 POC 现以版本化 MikroORM Migration 类作为唯一 Schema 来源。普通 ORM 启动入口不注册 `Migrator`；独立命令 Runner 只对名称严格匹配的一次性 `aspros_trade_poc` 数据库执行迁移。原先需要手工执行的 `schema.mysql.sql` 已删除，避免维护两套 Schema 来源。
 
+### Failure recovery and status semantics / 失败恢复与状态查询语义
+
+The POC's `status` command deliberately does not call `migrator.getExecuted()` or `migrator.getPending()`. Those APIs initialize the Migrator; for the standard SQL flow, initialization ensures that the migration-history table exists. Instead, status uses read-only queries against `information_schema.TABLES` and, only when the history table already exists, reads its recorded migration names. It reports whether the history table exists, executed/pending names, the expected POC table inventory, and a coarse schema state. This is an inventory check, not a full column/index/constraint drift validator.
+
+POC 的 `status` 命令刻意不调用 `migrator.getExecuted()` 或 `migrator.getPending()`。这些 API 会初始化 Migrator；在标准 SQL 流程中，初始化会确保 Migration 历史表存在。因此 status 改为对 `information_schema.TABLES` 执行只读查询，并且仅在历史表已经存在时读取已记录的 Migration 名称。它会报告历史表是否存在、已执行/待执行名称、POC 预期表清单，以及粗粒度 Schema 状态。这只是表清单检查，并非完整的列/索引/约束漂移校验。
+
+The mutating `up` path may initialize the Migrator and create its history table. Before running pending migrations, it checks for any expected POC schema table that already exists while the initial migration is still unlogged. If such residue is found, it refuses to rerun automatically. This catches common partial-DDL recovery cases and avoids treating `CREATE TABLE IF NOT EXISTS` as proof of schema correctness. The guard is intentionally conservative: it also refuses a manually pre-created but unlogged schema, which must be explicitly reconciled.
+
+会修改数据库的 `up` 路径可以初始化 Migrator 并创建历史表。在执行待处理 Migration 前，它会检查初始 Migration 尚未登记为已执行、但任意预期 POC Schema 表已经存在的情况。发现残留后就拒绝自动重跑。这可以捕获常见的部分 DDL 失败恢复场景，避免把 `CREATE TABLE IF NOT EXISTS` 误当作 Schema 正确性的证明。该保护刻意采取保守策略：即使 Schema 是人工预建但尚未登记，也会拒绝执行，必须先明确核对和处理。
+
+Migration execution emits structured `migration.started`, `migration.completed`, and `migration.failed` JSON log records with the migration name, timestamps, duration, and error details when available. The failure log preserves the original exception by rethrowing it unchanged. A failed MySQL DDL migration may leave earlier statements applied while no executed-history row exists; operators must inspect actual schema state and choose a deliberate forward repair or a disposable-POC reset. Never blindly retry, manually mark the migration as executed, or assume a database rollback reverted DDL.
+
+Migration 执行会输出结构化 JSON 日志事件：`migration.started`、`migration.completed` 和 `migration.failed`；尽可能包含 Migration 名称、时间戳、耗时和错误详情。失败日志记录后原样重新抛出异常，保留原始异常信息。MySQL DDL Migration 失败时，前面的语句可能已经生效，但历史表中没有已执行记录；运维人员必须检查真实 Schema 状态，再明确选择向前修复或重置一次性 POC。绝不可盲目重试、手工标记 Migration 已执行，或假设数据库回滚已经撤销 DDL。
+
+
 ### ORM/connection lifecycle / ORM 与连接生命周期
 
 - Initialize one ORM instance per process/database configuration. It owns the connection pool and metadata. / 每个进程/数据库配置初始化一个 ORM 实例，由它拥有连接池和元数据。

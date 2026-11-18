@@ -5,11 +5,27 @@ import { assertTradePocDatabaseUrl, type TradePocOrmOptions } from "./bootstrap.
 import { tradeRecordEntities } from "./records.js";
 
 const migrationHistoryTable = "poc_schema_migrations";
-const expectedSchemaTables = ["trades", "orders", "refunds", "poc_audit"] as const;
-const migrationNames = [Migration20261117000100_CreateTradePocSchema.name] as const;
+
+/**
+ * Migration impact metadata is used only for safe recovery checks.
+ * It is not a second schema definition; the Migration class remains the DDL source of truth.
+ * Migration 影响范围元数据只用于安全恢复检查，不是第二份 Schema 定义；DDL 仍以 Migration 类为准。
+ */
+const migrationDefinitions = [
+  {
+    migration: Migration20261117000100_CreateTradePocSchema,
+    targetTables: ["trades", "orders", "refunds", "poc_audit"],
+  },
+] as const;
+
+const migrationNames = migrationDefinitions.map(({ migration }) => migration.name);
+const expectedSchemaTables = [
+  ...new Set(migrationDefinitions.flatMap(({ targetTables }) => targetTables)),
+];
 
 export type TradePocSchemaState =
   | "not-applied"
+  | "pending"
   | "partially-created-or-unlogged"
   | "applied"
   | "inconsistent";
@@ -31,8 +47,17 @@ interface MigrationNameRow {
   readonly name: string;
 }
 
+interface PendingMigrationTarget {
+  readonly name: string;
+  readonly targetTables: readonly string[];
+}
+
 function normalizeMigrationName(name: string): string {
   return name.replace(/\.[jt]s$/, "");
+}
+
+function migrationTablePlaceholders(): string {
+  return expectedSchemaTables.map(() => "?").join(", ");
 }
 
 async function createMigrationOrm(options: TradePocOrmOptions) {
@@ -44,7 +69,7 @@ async function createMigrationOrm(options: TradePocOrmOptions) {
     debug: options.debug ?? false,
     extensions: [Migrator],
     migrations: {
-      migrationsList: [Migration20261117000100_CreateTradePocSchema],
+      migrationsList: migrationDefinitions.map(({ migration }) => migration),
       tableName: migrationHistoryTable,
       transactional: false,
       allOrNothing: false,
@@ -66,8 +91,8 @@ async function readMigrationStatus(
     `SELECT TABLE_NAME AS tableName
        FROM information_schema.TABLES
       WHERE TABLE_SCHEMA = DATABASE()
-        AND TABLE_NAME IN (?, ?, ?, ?)`,
-    [...expectedSchemaTables],
+        AND TABLE_NAME IN (${migrationTablePlaceholders()})`,
+    expectedSchemaTables,
     "all",
   )) as TableNameRow[];
 
@@ -97,13 +122,22 @@ async function readMigrationStatus(
 
   const executedSet = new Set(executed);
   const pending = migrationNames.filter((name) => !executedSet.has(name));
-  const initialMigrationApplied = executedSet.has(migrationNames[0]);
+  const appliedDefinitions = migrationDefinitions.filter(({ migration }) =>
+    executedSet.has(migration.name),
+  );
+  const appliedTables = new Set(appliedDefinitions.flatMap(({ targetTables }) => targetTables));
+  const missingAppliedTables = [...appliedTables].filter((tableName) => !existingSet.has(tableName));
+  const unloggedExistingTables = existingSchemaTables.filter((tableName) => !appliedTables.has(tableName));
 
   let schemaState: TradePocSchemaState;
-  if (initialMigrationApplied) {
-    schemaState = missingSchemaTables.length === 0 ? "applied" : "inconsistent";
+  if (missingAppliedTables.length > 0) {
+    schemaState = "inconsistent";
+  } else if (unloggedExistingTables.length > 0) {
+    schemaState = "partially-created-or-unlogged";
+  } else if (pending.length > 0) {
+    schemaState = executed.length === 0 ? "not-applied" : "pending";
   } else {
-    schemaState = existingSchemaTables.length === 0 ? "not-applied" : "partially-created-or-unlogged";
+    schemaState = "applied";
   }
 
   return {
@@ -117,25 +151,23 @@ async function readMigrationStatus(
 }
 
 /**
- * Refuse a pending migration when its target tables already exist without a history record.
- * 待执行 Migration 缺少历史记录、但目标表已存在时拒绝继续执行。
+ * Refuse only when a pending migration's own target tables already exist.
+ * 仅当待执行 Migration 自己负责的目标表已经存在时才拒绝执行。
  */
 export function assertSafeTradePocMigrationStart(
-  pendingMigrationNames: readonly string[],
-  executedMigrationNames: readonly string[],
+  pendingMigrations: readonly PendingMigrationTarget[],
   existingTableNames: readonly string[],
 ): void {
-  const executed = new Set(executedMigrationNames.map(normalizeMigrationName));
-  const hasUnloggedPendingMigration = pendingMigrationNames.some(
-    (name) => !executed.has(normalizeMigrationName(name)),
-  );
-
-  if (hasUnloggedPendingMigration && existingTableNames.length > 0) {
-    throw new Error([
-      "Refusing to rerun a pending migration because target POC tables already exist without an executed migration record.",
-      `Existing tables: ${[...existingTableNames].sort().join(", ")}.`,
-      "MySQL DDL may have committed before a previous run failed. Inspect the actual table definitions and migration history, then repair forward or reset this disposable POC database before retrying.",
-    ].join(" "));
+  const existing = new Set(existingTableNames);
+  for (const migration of pendingMigrations) {
+    const conflicts = migration.targetTables.filter((tableName) => existing.has(tableName));
+    if (conflicts.length > 0) {
+      throw new Error([
+        `Refusing to run pending migration "${migration.name}" because its target tables already exist without an executed migration record.`,
+        `Conflicting tables: ${[...conflicts].sort().join(", ")}.`,
+        "MySQL DDL may have committed before a previous run failed. Inspect the actual table definitions and migration history, then repair forward or reset only this disposable POC schema before retrying.",
+      ].join(" "));
+    }
   }
 }
 
@@ -155,21 +187,29 @@ export async function applyTradePocMigrations(
   try {
     // "up" is mutating: Migrator initialization ensures its history table exists.
     // up 会修改数据库：Migrator 初始化时会确保历史表存在。
-    const executedRows = await orm.migrator.getExecuted();
     const pendingRows = await orm.migrator.getPending();
-    const executed = new Set(executedRows.map((row) => normalizeMigrationName(row.name)));
-    const pending = pendingRows.map((row) => normalizeMigrationName(row.name));
+    const pendingMigrations = pendingRows.map((row) => {
+      const name = normalizeMigrationName(row.name);
+      const definition = migrationDefinitions.find(
+        ({ migration }) => migration.name === name,
+      );
+      if (!definition) {
+        throw new Error(`No recovery metadata is registered for pending migration "${name}".`);
+      }
+      return { name, targetTables: definition.targetTables };
+    });
+
     const existingRows = (await orm.em.getConnection().execute(
       `SELECT TABLE_NAME AS tableName
          FROM information_schema.TABLES
         WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME IN (?, ?, ?, ?)`,
-      [...expectedSchemaTables],
+          AND TABLE_NAME IN (${migrationTablePlaceholders()})`,
+      expectedSchemaTables,
       "all",
     )) as TableNameRow[];
     const existingTables = existingRows.map((row) => row.tableName);
 
-    assertSafeTradePocMigrationStart(pending, [...executed], existingTables);
+    assertSafeTradePocMigrationStart(pendingMigrations, existingTables);
 
     orm.migrator.on("migrating", (migration) => {
       activeMigration = {

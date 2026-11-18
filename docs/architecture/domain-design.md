@@ -88,13 +88,13 @@ When a business chooses an aggregate as a consistency boundary, that business mo
 
 ## 5. Repository and Unit of Work / 仓储与工作单元
 
-`IRepository<TAggregate, TId>` provides `findById` and `save`. A repository should load the state needed to enforce the aggregate's invariants. Business-specific repositories may extend this contract with meaningful queries.
+`IRepository<TAggregate, TId>` is query-only and currently provides `findById`. It restores the complete aggregate state needed to enforce its invariants. Business-specific repositories may extend the contract with meaningful queries, but persistence registration and saving do not belong to Repository.
 
-`IRepository<TAggregate, TId>` 提供 `findById` 和 `save`。仓储应加载维护聚合不变量所需的状态。业务专属仓储可按实际需要扩展有意义的查询。
+`IRepository<TAggregate, TId>` 只负责查询，目前提供 `findById`。它应还原维护聚合不变量所需的完整状态。业务专属仓储可以扩展有意义的查询，但持久化变更登记和保存不属于 Repository。
 
-`IUnitOfWork` provides `commit` and `rollback` only. It does not expose a database context, connection, ORM session, or transaction implementation. Application coordinates its lifecycle; Infrastructure implements it.
+`IUnitOfWork` exposes `registerNew`, `registerDirty`, `registerDeleted`, `beginTransaction`, `commit`, `rollback`, and `hasActiveTransaction`. Register methods stage persistence intent in memory only; `commit` performs the actual persistence. Explicit transactions are opt-in and disabled by default. The contract does not expose a database context, connection, ORM session, or provider-specific transaction implementation. Application coordinates the work scope; Infrastructure implements the contract.
 
-`IUnitOfWork` 仅提供 `commit` 和 `rollback`。它不暴露数据库上下文、连接、ORM Session 或事务实现。Application 协调其生命周期；Infrastructure 实现它。
+`IUnitOfWork` 提供 `registerNew`、`registerDirty`、`registerDeleted`、`beginTransaction`、`commit`、`rollback` 和 `hasActiveTransaction`。Register 方法只在内存中登记持久化意图；`commit` 才执行真正的持久化。显式事务为可选能力，默认关闭。该契约不暴露数据库上下文、连接、ORM Session 或供应商专属事务实现。Application 协调工作范围；Infrastructure 实现该契约。
 
 ## 6. Domain Events and Errors / 领域事件与错误
 

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "vitest run",
+    "test": "vitest run tests/bootstrap.test.ts tests/migration-runner.test.ts tests/trade-mapper.test.ts",
     "test:mysql": "vitest run tests/mysql.integration.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "migrate:up": "tsx src/migrate.ts up",

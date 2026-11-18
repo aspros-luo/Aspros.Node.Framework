@@ -47,7 +47,7 @@ interface MigrationNameRow {
   readonly name: string;
 }
 
-interface PendingMigrationTarget {
+interface PendingMigration {
   readonly name: string;
   readonly createdTables: readonly string[];
 }
@@ -152,10 +152,10 @@ async function readMigrationStatus(
 
 /**
  * Refuse only when a pending migration's declared newly created tables already exist.
- * 仅当待执行 Migration 自己负责的目标表已经存在时才拒绝执行。
+ * 仅当待执行 Migration 声明要新建的表已经存在时才拒绝执行。
  */
 export function assertSafeTradePocMigrationStart(
-  pendingMigrations: readonly PendingMigrationTarget[],
+  pendingMigrations: readonly PendingMigration[],
   existingTableNames: readonly string[],
 ): void {
   const existing = new Set(existingTableNames);

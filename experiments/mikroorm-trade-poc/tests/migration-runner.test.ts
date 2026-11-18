@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { assertSafeTradePocMigrationStart } from "../src/migration-runner.js";
 
 describe("Trade POC migration recovery guard", () => {
-  it("allows a first migration when none of its target tables exist", () => {
+  it("allows a first migration when none of its declared new tables exist", () => {
     expect(() =>
       assertSafeTradePocMigrationStart(
         [
@@ -16,7 +16,7 @@ describe("Trade POC migration recovery guard", () => {
     ).not.toThrow();
   });
 
-  it("refuses to run when a pending migration's own target table already exists", () => {
+  it("refuses to run when a pending migration's declared new table already exists", () => {
     expect(() =>
       assertSafeTradePocMigrationStart(
         [
@@ -27,10 +27,10 @@ describe("Trade POC migration recovery guard", () => {
         ],
         ["trades", "payments"],
       ),
-    ).toThrow(/Migration002_AddPayments.*target tables already exist/i);
+    ).toThrow(/Migration002_AddPayments.*tables it is expected to create already exist/i);
   });
 
-  it("allows a later migration when only tables from earlier migrations exist", () => {
+  it("allows a later migration when only tables created by earlier migrations exist", () => {
     expect(() =>
       assertSafeTradePocMigrationStart(
         [
@@ -44,7 +44,7 @@ describe("Trade POC migration recovery guard", () => {
     ).not.toThrow();
   });
 
-  it("checks each pending migration against its own target tables", () => {
+  it("checks each pending migration against its own declared new tables", () => {
     expect(() =>
       assertSafeTradePocMigrationStart(
         [
@@ -60,6 +60,20 @@ describe("Trade POC migration recovery guard", () => {
         ["trades", "outbox_messages"],
       ),
     ).toThrow(/Migration003_AddOutbox.*outbox_messages/i);
+  });
+
+  it("does not treat an existing table altered by a migration as a newly created table", () => {
+    expect(() =>
+      assertSafeTradePocMigrationStart(
+        [
+          {
+            name: "Migration004_AddTradeColumn",
+            createdTables: [],
+          },
+        ],
+        ["trades"],
+      ),
+    ).not.toThrow();
   });
 
   it("allows an already applied migration because it is not in the pending set", () => {

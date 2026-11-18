@@ -1,6 +1,6 @@
 # Infrastructure Design / Infrastructure 设计
 
-**Status / 状态：.NET persistence audit complete; MikroORM/MySQL proof of concept pending / .NET 持久化审计已完成；MikroORM/MySQL POC 待验证**
+**Status / 状态：.NET persistence audit complete; MikroORM/MySQL POC implemented, runtime verification pending / .NET 持久化审计已完成；MikroORM/MySQL POC 已实现，待真实运行验证**
 
 This document is the single source of truth for Infrastructure scope, capability mapping, and provider decisions. It is a design baseline, not a claim that listed capabilities are implemented.
 
@@ -527,17 +527,17 @@ This is still an experiment, not a production migration framework. Production ad
 
 已审计当前 .NET Database、Repository、UnitOfWork、Dapper 和 Migration 设计源码；事务所有权与 Domain/Infrastructure 边界风险已记录。
 
-**Recommended, pending POC / 已推荐，等待 POC：** MikroORM 7.2 + MySQL driver. The latest 7.2 patch observed during this review is 7.2.9; pin the exact patch in the isolated experiment and keep it out of the production Infrastructure dependency graph until acceptance. / 首选候选为 MikroORM 7.2 + MySQL Driver。本次审查时观察到的 7.2 最新补丁版本为 7.2.9；在独立实验中固定具体补丁版本，在验收通过前不将其加入生产 Infrastructure 依赖图。
+**Recommended candidate; POC implementation present, runtime acceptance pending / 已推荐候选；POC 实现已具备，仍待真实运行验收：** MikroORM 7.2 + MySQL driver. The latest 7.2 patch observed during this review is 7.2.9; pin the exact patch in the isolated experiment and keep it out of the production Infrastructure dependency graph until acceptance. / 首选候选为 MikroORM 7.2 + MySQL Driver。本次审查时观察到的 7.2 最新补丁版本为 7.2.9；在独立实验中固定具体补丁版本，在验收通过前不将其加入生产 Infrastructure 依赖图。
 
-已推荐首轮使用 MikroORM 7.2 + MySQL Driver，但等待 POC 验证。
+已完成代码级 POC，但尚未在本地 Node/pnpm 和一次性 MySQL 环境中完成运行验收。
 
-**POC scaffold added / 已加入 POC 骨架：** an isolated `experiments/mikroorm-trade-poc` workspace package now defines separate Trade/Order/Refund persistence records and an explicit mapper with mapping tests. MikroORM 7.2.9 dependencies are isolated from `@aspros/infrastructure`; these tests have not yet been executed in a local Node/pnpm environment. / 已新增独立 `experiments/mikroorm-trade-poc` 工作区 package，定义独立的 Trade/Order/Refund 持久化记录、显式 Mapper 和映射测试。MikroORM 7.2.9 依赖与 `@aspros/infrastructure` 隔离；这些测试尚未在本地 Node/pnpm 环境执行。
+**POC implementation added / 已加入 POC 实现：** the isolated `experiments/mikroorm-trade-poc` workspace package now contains separate Trade/Order/Refund persistence records, explicit mapping, Trade-specific query Repository and Unit of Work adapters, a versioned migration runner, and unit plus MySQL integration tests. MikroORM 7.2.9 dependencies remain isolated from `@aspros/infrastructure`; no runtime verification has yet been performed in a local Node/pnpm/MySQL environment. / 已新增独立 `experiments/mikroorm-trade-poc` 工作区 package，定义独立的 Trade/Order/Refund 持久化记录、显式 Mapper 和映射测试。MikroORM 7.2.9 依赖与 `@aspros/infrastructure` 隔离；这些测试尚未在本地 Node/pnpm 环境执行。
 
-正式 `@aspros/infrastructure` package 尚未添加 MikroORM 依赖、数据库适配器、原生 SQL 执行器或 Migration 文件；MikroORM 依赖目前只存在于独立 POC package，且尚无真实 MySQL 集成测试。
+正式 `@aspros/infrastructure` package 尚未添加 MikroORM 依赖、数据库适配器、原生 SQL 执行器或 Migration 文件；MikroORM 依赖目前只存在于独立 POC package。真实 MySQL 集成测试代码已经编写，但尚未在本地 MySQL 环境执行。
 
 **New finding / 新发现：** direct ORM hydration of the current Domain classes is not the preferred approach. The POC will map separate MikroORM persistence records to and from Domain objects by calling public Domain constructors and legal state-transition methods. / 不建议让 ORM 直接还原当前 Domain 类。POC 将使用独立 MikroORM 持久化记录，通过调用 Domain 公共构造函数和合法状态转换方法完成双向映射。
 
-**Next / 下一步：** after the local Docker environment is ready, run typecheck/unit tests and verify the Register/Commit and Migration Runner POCs against the disposable MySQL database. Cover default non-transactional scope, explicit transaction rollback, new/dirty/deleted registration, fresh migration apply, a second no-op apply after success, read-only status against both an empty and initialized history table, and a simulated partial-DDL state that the runner must reject. Inspect the structured start/completion/failure logs. Before production adoption, decide whether full column/index/foreign-key drift validation is worth its ongoing complexity; do not add a second schema source merely for completeness. Keep database provisioning outside the framework and finalize deployment locking/runtime lifecycle only when a real deployment target requires it. / 本地 Docker 环境准备好后，执行类型检查、单元测试，并在一次性 MySQL 数据库中验证 Register/Commit 与 Migration Runner POC。验证默认不显式开启事务、显式事务回滚、新增/修改/删除登记、首次 Migration、成功后的第二次无操作执行、空历史表和已初始化历史表下的只读状态查询，以及 Runner 必须拒绝执行的模拟部分 DDL 残留状态。检查结构化开始/完成/失败日志。正式采用前，还需补充完整的列/索引/外键漂移校验，并最终确定部署锁和运行时生命周期。
+**Next / 下一步：** after the local Docker environment is ready, run typecheck/unit tests and verify the Register/Commit and Migration Runner POCs against the disposable MySQL database. Cover default non-transactional scope, explicit transaction rollback, new/dirty/deleted registration, fresh migration apply, a second no-op apply after success, read-only status against both an empty and initialized history table, and a simulated partial-DDL state that the runner must reject. Inspect the structured start/completion/failure logs. Before production adoption, evaluate whether full column/index/foreign-key drift validation is required by an actual deployment workflow. Add it only if the operational risk justifies its maintenance cost; do not create a second schema source merely for completeness. Keep database provisioning outside the framework and finalize deployment locking/runtime lifecycle only when a real deployment target requires it. / 本地 Docker 环境准备好后，执行类型检查、单元测试，并在一次性 MySQL 数据库中验证 Register/Commit 与 Migration Runner POC。验证默认不显式开启事务、显式事务回滚、新增/修改/删除登记、首次 Migration、成功后的第二次无操作执行、空历史表和已初始化历史表下的只读状态查询，以及 Runner 必须拒绝执行的模拟部分 DDL 残留状态。检查结构化开始/完成/失败日志。正式采用前，应根据真实部署流程评估是否需要完整的列/索引/外键漂移校验；只有其风险收益足以覆盖长期维护成本时才实现。部署锁和运行时生命周期也应在明确目标环境后确定。
 
 Application remains deferred until required Infrastructure capabilities have working implementations and verification evidence.
 

@@ -28,7 +28,8 @@ export type TradePocSchemaState =
   | "pending"
   | "partially-created-or-unlogged"
   | "applied"
-  | "inconsistent";
+  | "inconsistent"
+  | "unknown-migrations";
 
 export interface TradePocMigrationStatus {
   readonly historyTableExists: boolean;
@@ -37,6 +38,7 @@ export interface TradePocMigrationStatus {
   readonly missingSchemaTables: readonly string[];
   readonly executed: readonly string[];
   readonly pending: readonly string[];
+  readonly unknownExecuted: readonly string[];
 }
 
 interface TableNameRow {
@@ -122,6 +124,7 @@ async function readMigrationStatus(
 
   const executedSet = new Set(executed);
   const pending = migrationNames.filter((name) => !executedSet.has(name));
+  const unknownExecuted = findUnknownTradePocMigrations(executed);
   const appliedDefinitions = migrationDefinitions.filter(({ migration }) =>
     executedSet.has(migration.name),
   );
@@ -130,7 +133,9 @@ async function readMigrationStatus(
   const unloggedExistingTables = existingSchemaTables.filter((tableName) => !appliedTables.has(tableName));
 
   let schemaState: TradePocSchemaState;
-  if (missingAppliedTables.length > 0) {
+  if (unknownExecuted.length > 0) {
+    schemaState = "unknown-migrations";
+  } else if (missingAppliedTables.length > 0) {
     schemaState = "inconsistent";
   } else if (unloggedExistingTables.length > 0) {
     schemaState = "partially-created-or-unlogged";
@@ -147,7 +152,37 @@ async function readMigrationStatus(
     missingSchemaTables,
     executed,
     pending,
+    unknownExecuted,
   };
+}
+
+/**
+ * Return applied migration names that are not registered by this application version.
+ * 返回当前应用版本未注册、但数据库已记录为执行的 Migration。
+ */
+export function findUnknownTradePocMigrations(
+  executedMigrationNames: readonly string[],
+): string[] {
+  const registered = new Set(migrationNames);
+  return [...new Set(executedMigrationNames.map(normalizeMigrationName))]
+    .filter((name) => !registered.has(name));
+}
+
+/**
+ * Refuse to migrate when the database contains migrations unknown to this application version.
+ * 当数据库包含当前应用版本不认识的 Migration 时，拒绝执行迁移。
+ */
+export function assertKnownTradePocMigrations(
+  executedMigrationNames: readonly string[],
+): void {
+  const unknown = findUnknownTradePocMigrations(executedMigrationNames);
+  if (unknown.length > 0) {
+    throw new Error([
+      "Refusing to run migrations because the database contains migration history entries unknown to this application version.",
+      `Unknown executed migrations: ${unknown.join(", ")}.`,
+      "This usually means the database is newer than the application or a migration was renamed/removed. Deploy a compatible application version or reconcile the migration history deliberately; do not run an older binary against a newer schema.",
+    ].join(" "));
+  }
 }
 
 /**
@@ -187,6 +222,9 @@ export async function applyTradePocMigrations(
   try {
     // "up" is mutating: Migrator initialization ensures its history table exists.
     // up 会修改数据库：Migrator 初始化时会确保历史表存在。
+    const executedRows = await orm.migrator.getExecuted();
+    assertKnownTradePocMigrations(executedRows.map((row) => row.name));
+
     const pendingRows = await orm.migrator.getPending();
     const pendingMigrations = pendingRows.map((row) => {
       const name = normalizeMigrationName(row.name);

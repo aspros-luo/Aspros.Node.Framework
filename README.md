@@ -6,9 +6,9 @@
 
 ## Project Status / 项目状态
 
-The Domain baseline has been created. The Infrastructure workspace package and its initial capability design have now been initialized; provider audit and implementation are the next work items.
+The Domain baseline is established. Infrastructure now includes a small explicit resource lifecycle coordinator; provider capabilities remain under implementation and verification.
 
-Domain 首版基线已经建立。Infrastructure 工作区 package 及首轮能力设计现已初始化；下一步是供应商审计与具体能力实现。
+Domain 首版基线已经建立。Infrastructure 现已包含轻量的显式资源生命周期协调器；各项 Provider 能力仍在逐步实现和验证。
 
 This project is designed independently, using [Aspros.Basic.Framework](https://github.com/aspros-luo/Aspros.Basic.Framework) as an architectural reference rather than mechanically translating its .NET implementation.
 
@@ -28,7 +28,7 @@ A capability is implemented only when working code, tests, and verification evid
 ## Packages / 模块
 
 - `packages/domain` — domain kernel, repository and Unit of Work contracts. / 领域内核、Repository 和 Unit of Work 契约。
-- `packages/infrastructure` — initialized package boundary for database, cache, messaging, analytics, communication and operations adapters. Provider implementations are not yet included. / 已初始化数据库、缓存、消息、分析存储、服务通信和运维适配器的 package 边界；具体供应商实现尚未加入。
+- `packages/infrastructure` — technical adapters and runtime integration. A provider-neutral lifecycle coordinator is implemented; database, cache, messaging and other provider adapters are not yet included. / 已初始化数据库、缓存、消息、分析存储、服务通信和运维适配器的 package 边界；具体供应商实现尚未加入。
 - `packages/application` — planned use cases and orchestration, designed after required infrastructure capabilities are implemented and verified. / 计划中的应用用例与编排，待所需基础设施能力实现并验证后再设计。
 - `packages/runtime-node` — planned Node.js-specific integrations. / 计划中的 Node.js 专属集成。
 - `examples/` — later formal end-to-end microservice demos. / 后续正式端到端微服务 Demo。
@@ -52,7 +52,7 @@ The first Domain package includes a focused Trade / Order / Refund example under
 ## Workspace Commands / 工作区命令
 
 - `pnpm install`
-- `pnpm check` — type-checks Domain, Infrastructure and the active persistence POC; runs Domain and POC unit tests; then builds the publishable workspace packages. / 对 Domain、Infrastructure 和当前持久化 POC 执行类型检查；运行 Domain 与 POC 单元测试；最后构建工作区 package。
+- `pnpm check` — type-checks Domain, Infrastructure and the active persistence POC; runs Domain, Infrastructure and POC unit tests; then builds the workspace packages. / 对 Domain、Infrastructure 和当前持久化 POC 执行类型检查；运行 Domain、Infrastructure 与 POC 单元测试；最后构建工作区 package。
 - `pnpm poc:trade-mapping` — runs only the Trade mapper tests. / 仅运行 Trade Mapper 测试。
 - `pnpm poc:trade-unit` — runs all fast POC unit tests, excluding MySQL integration. / 运行全部快速 POC 单元测试，不包含 MySQL 集成测试。
 - `pnpm poc:trade-mysql` — explicitly runs the opt-in MySQL integration suite. / 显式运行可选 MySQL 集成测试。

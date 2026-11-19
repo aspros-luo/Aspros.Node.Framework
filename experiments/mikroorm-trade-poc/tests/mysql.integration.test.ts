@@ -225,6 +225,77 @@ describe.skipIf(!clientUrl)("MikroORM MySQL Trade persistence", () => {
     }
   });
 
+  it("isolates concurrent Unit of Work transactions while keeping the ORM pool available", async () => {
+    const orm = await getOrm();
+    const idBase = randomInt(100, 1_000_000_000);
+    const rolledBackTradeId = idBase;
+    const rolledBackOrderId = idBase + 1;
+    const committedTradeId = idBase + 2;
+    const committedOrderId = idBase + 3;
+    const rolledBackScope = await createTradePersistenceScope(orm.em);
+    const committedScope = await createTradePersistenceScope(orm.em);
+
+    try {
+      const starts = await Promise.allSettled([
+        rolledBackScope.unitOfWork.beginTransaction(),
+        committedScope.unitOfWork.beginTransaction(),
+      ]);
+      expect(starts.every((result) => result.status === "fulfilled")).toBe(true);
+      expect(rolledBackScope.unitOfWork.hasActiveTransaction).toBe(true);
+      expect(committedScope.unitOfWork.hasActiveTransaction).toBe(true);
+
+      rolledBackScope.unitOfWork.registerNew(
+        new Trade(
+          rolledBackTradeId,
+          [new Order(rolledBackOrderId, "Rolled Back Item", 1, 1100)],
+        ),
+      );
+      committedScope.unitOfWork.registerNew(
+        new Trade(
+          committedTradeId,
+          [new Order(committedOrderId, "Committed Item", 1, 2200)],
+        ),
+      );
+
+      // Committing one scope must not commit or detach the other scope's transaction.
+      // 一个 Scope 的提交不得提交或解除另一个 Scope 的事务。
+      await committedScope.unitOfWork.commit();
+      expect(rolledBackScope.unitOfWork.hasActiveTransaction).toBe(true);
+      await rolledBackScope.unitOfWork.rollback();
+
+      // A fresh scope can still use the same ORM-managed pool after both scopes finish.
+      // 两个 Scope 结束后，新 Scope 仍能使用同一个 ORM 管理的连接池。
+      const verifier = await createTradePersistenceScope(orm.em);
+      try {
+        expect(await verifier.tradeRepository.findById(rolledBackTradeId)).toBeNull();
+        expect(await verifier.tradeRepository.findById(committedTradeId)).not.toBeNull();
+        await verifier.unitOfWork.rollback();
+      } catch (error) {
+        try { await verifier.unitOfWork.rollback(); } catch { /* Scope is already closed. */ }
+        throw error;
+      }
+    } finally {
+      if (rolledBackScope.unitOfWork.hasActiveTransaction) {
+        await rolledBackScope.unitOfWork.rollback();
+      }
+      if (committedScope.unitOfWork.hasActiveTransaction) {
+        await committedScope.unitOfWork.rollback();
+      }
+
+      const cleanup = orm.em.fork({ clear: true });
+      try {
+        await cleanup.nativeDelete(RefundRecord, { trade: rolledBackTradeId });
+        await cleanup.nativeDelete(OrderRecord, { trade: rolledBackTradeId });
+        await cleanup.nativeDelete(TradeRecord, { id: rolledBackTradeId });
+        await cleanup.nativeDelete(RefundRecord, { trade: committedTradeId });
+        await cleanup.nativeDelete(OrderRecord, { trade: committedTradeId });
+        await cleanup.nativeDelete(TradeRecord, { id: committedTradeId });
+      } finally {
+        cleanup.clear();
+      }
+    }
+  });
+
   it("does not persist registered changes when an explicit Unit of Work scope is rolled back", async () => {
     const orm = await getOrm();
     const idBase = randomInt(100, 1_000_000_000);

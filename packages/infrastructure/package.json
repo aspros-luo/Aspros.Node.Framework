@@ -15,7 +15,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.all.json",
-    "typecheck:source": "tsc --noEmit -p tsconfig.json"
+    "typecheck:source": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
   },
   "dependencies": {
     "@aspros/domain": "workspace:*"

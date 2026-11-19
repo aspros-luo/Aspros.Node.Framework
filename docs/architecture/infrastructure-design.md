@@ -302,7 +302,7 @@ MikroORM is not approved as the framework's default provider until all checks pa
 3. **Constructor/private state / 构造函数与私有状态** — Verify constructors, private fields/accessors and hydration. MikroORM normally skips constructors for managed entities unless explicitly configured; this must be reconciled with Domain invariants. / 验证构造函数、私有字段/访问器和实体还原；MikroORM 默认加载托管实体时不调用构造函数，必须证明这与 Domain 不变量兼容。
 4. **Repository semantics / Repository 语义** — Repository is query-only; `findById` restores the complete aggregate state required by its invariants. New/dirty/deleted persistence intent is registered with Unit of Work and written only by Commit. / Repository 只负责查询；`findById` 恢复维护聚合不变量所需的完整状态。新增/修改/删除意图通过 Unit of Work 登记，并且只由 Commit 执行持久化。
 5. **UoW failure lifecycle / UoW 失败生命周期** — Verify flush, failed flush, rollback, context abandonment and reload. / 验证 Flush、Flush 失败、回滚、上下文放弃和重新加载。
-6. **Shared transaction / 共享事务** — Verify the Raw SQL Executor uses the ORM-managed pool through an independent query context, does not receive the Unit of Work EntityManager/transaction, returns plain read data, and exposes no mutation API. / 验证 Raw SQL Executor 通过独立查询上下文使用 ORM 管理的连接池，不接收 Unit of Work EntityManager/事务，返回普通读取数据，并且不暴露修改 API。
+6. **Read-only SQL isolation / 只读 SQL 隔离** — Verify the Raw SQL Executor uses the ORM-managed pool through an independent query context, does not receive the Unit of Work EntityManager/transaction, returns plain read data, and exposes no mutation API. / 验证 Raw SQL Executor 通过独立查询上下文使用 ORM 管理的连接池，不接收 Unit of Work EntityManager/事务，返回普通读取数据，并且不暴露修改 API。
 7. **Propagation/ownership / 传播与所有权** — Verify REQUIRED/join-existing behavior and ensure inner components never commit outer transactions. / 验证 REQUIRED/加入现有事务，并确保内部组件不会提交外层事务。
 8. **Concurrent isolation / 并发隔离** — Prove parallel requests/jobs do not share identity maps or transaction state. / 证明并发请求/任务不会共享 Identity Map 或事务状态。
 9. **MySQL type behavior / MySQL 类型行为** — Verify BIGINT identifiers, decimal precision, nullability, indexes, unique constraints and relation delete behavior. / 验证 BIGINT、Decimal 精度、可空性、索引、唯一约束和关系删除行为。
@@ -383,7 +383,7 @@ The isolated Trade POC now contains a concrete, Trade-specific implementation of
 
 ### Scope ownership / Scope 所有权
 
-- `createTradePersistenceScope(rootEntityManager)` forks a fresh EntityManager with a cleared identity map but does not begin a transaction. The returned Repository and Unit of Work share this same EntityManager. / `createTradePersistenceScope(rootEntityManager)` 会 Fork 一个 Identity Map 已清空的 EntityManager，但不会自动开启事务。返回的 Repository 与 Unit of Work 共享该 EntityManager。
+- `createTradePersistenceScope(rootEntityManager)` forks a fresh EntityManager with a cleared identity map but does not begin a transaction. The returned Repository and Unit of Work share this same EntityManager; the scope does not expose the EntityManager or raw connection to callers. / `createTradePersistenceScope(rootEntityManager)` 会 Fork 一个 Identity Map 已清空的 EntityManager，但不会自动开启事务。返回的 Repository 与 Unit of Work 在内部共享该 EntityManager；Scope 不向调用方暴露 EntityManager 或原始连接。
 - The scope rejects a root EntityManager that is already in a transaction. It does not silently create an independent transaction when the caller may expect REQUIRED/join-existing behavior. / 若 Root EntityManager 已处于事务中，Scope 会拒绝创建；不会在调用方可能期待 REQUIRED/加入现有事务时，静默创建独立事务。
 - Commit maps and flushes registered changes, then commits an explicitly owned transaction if present. Rollback discards registrations and rolls back only an explicitly owned transaction. Both paths clear the identity map; a failed commit/rollback makes the scope unusable. / Commit 映射并 Flush 已登记变更；若存在显式拥有的事务，再提交该事务。Rollback 丢弃登记，并且只回滚显式拥有的事务。两条路径都会清空 Identity Map；Commit/Rollback 失败后 Scope 不可继续使用。
 - A failed database transaction does not rewind mutated in-memory Domain objects. The caller must discard the scope and reload aggregates in a new one. / 数据库事务失败不会还原已变化的内存 Domain 对象。调用方必须丢弃当前 Scope，并在新 Scope 中重新加载聚合。
@@ -396,21 +396,21 @@ The isolated Trade POC now contains a concrete, Trade-specific implementation of
 - New child IDs are checked for collisions. New/updated Refund records are linked to the managed Trade and Order records in the current identity map. / 新子实体 ID 会检查冲突；新增/更新的 Refund 会关联当前 Identity Map 中托管的 Trade 和 Order 记录。
 - The adapter does not yet implement optimistic concurrency/version columns, soft deletion, aggregate child removal, or generic repository composition. / 此适配器尚未实现乐观并发/版本列、软删除、聚合子实体删除或通用 Repository 组合。
 
-### Same-transaction SQL / 同事务 SQL
+### Raw SQL query direction / 原生 SQL 查询方向
 
-MikroORM 7.2 documents a first-class Kysely integration through `EntityManager.getKysely()`. Kysely operations issued through the same EntityManager while its explicit transaction is active use that transaction context; a forked EntityManager without the transaction context uses the pool instead. This is a promising Node equivalent for the reference framework's Dapper-style raw SQL access, without introducing a second independently managed connection.
+MikroORM 7.2 exposes raw SQL and Kysely integration capabilities. Its EntityManager can bind Kysely operations to an active transaction, but that provider feature is deliberately not adopted as the framework's Raw SQL contract. The accepted boundary is read-only: when a concrete complex-read use case appears, the executor will use an independent query context backed by the same ORM-managed pool, return plain DTO/read-model data, and never receive the Unit of Work EntityManager or transaction. It will not expose mutation methods.
 
-MikroORM 7.2 文档提供了通过 `EntityManager.getKysely()` 使用 Kysely 的一等集成。在同一个 EntityManager 的显式事务活动期间执行 Kysely 操作，会使用该事务上下文；没有事务上下文的 Fork EntityManager 则会使用连接池。这有望成为参考框架中 Dapper 风格原生 SQL 访问在 Node 技术栈中的对应方案，并避免再独立管理第二条连接。
+MikroORM 7.2 提供原生 SQL 和 Kysely 集成能力。EntityManager 可以让 Kysely 操作绑定活动事务，但框架有意不把这一 Provider 特性作为 Raw SQL 契约。已确认的边界是只读：出现真实复杂查询用例时，执行器将通过独立查询上下文使用 ORM 管理的同一连接池，返回普通 DTO/Read Model，绝不接收 Unit of Work 的 EntityManager 或事务，也不暴露修改方法。
 
-The POC now separates query-only Repository behavior from Unit of Work registration. Register methods stage aggregate intent in memory; Commit performs mapping and ORM flush. The explicit-transaction rollback probe verifies that registered changes are discarded before Commit and that independent Kysely work in the same scope is rolled back. This test is added but has not been run.
+The current POC does not implement a Raw SQL Executor because no concrete complex-read use case requires one yet. Its Unit of Work rollback integration test only verifies that staged aggregate changes are not persisted when the scope is rolled back before Commit; it no longer performs SQL writes outside the Unit of Work. This test has not been run.
 
-POC 现已将只读查询 Repository 与 Unit of Work 变更登记分离。Register 方法只在内存中登记聚合意图；Commit 才执行映射和 ORM Flush。显式事务回滚探针验证 Commit 前登记的变更可以被丢弃，并验证同一 Scope 中独立执行的 Kysely 操作会随事务回滚。该测试已加入但尚未运行。
+当前 POC 尚未实现 Raw SQL Executor，因为目前没有具体复杂查询用例要求它。Unit of Work 回滚集成测试只验证 Scope 在 Commit 前回滚时，已登记的聚合变更不会被持久化；测试不再通过 Unit of Work 之外的 SQL 执行写入。该测试尚未运行。
 
 ### Explicitly deferred / 明确暂缓
 
-REQUIRED propagation, joining a caller-owned transaction, nested savepoint policy, Transactional Outbox, and event publication remain deferred. The Kysely same-transaction path has now been added as an opt-in integration probe but is not yet verified. In particular, Domain events are not automatically cleared by this POC: event capture, durable outbox persistence, publication and clearing must be coordinated so events are not lost between database commit and delivery.
+REQUIRED propagation, joining a caller-owned transaction, nested savepoint policy, Transactional Outbox, and event publication remain deferred. The Raw SQL Executor also remains deferred until a concrete complex-read use case justifies its API. In particular, Domain events are not automatically cleared by this POC: event capture, durable outbox persistence, publication and clearing must be coordinated so events are not lost between database commit and delivery.
 
-REQUIRED 传播、加入调用方事务、嵌套 Savepoint 策略、Transactional Outbox 和事件发布仍暂缓。Kysely 同事务路径已加入可选集成验证，但尚未验证。特别是此 POC 不会自动清空 Domain 事件：事件捕获、Outbox 持久化、事件发布和清空必须协调，避免数据库提交与事件投递之间丢失事件。
+REQUIRED 传播、加入调用方事务、嵌套 Savepoint 策略、Transactional Outbox 和事件发布仍暂缓。Raw SQL Executor 也暂缓实现，直到具体复杂查询用例足以证明其 API 有必要。特别是此 POC 不会自动清空 Domain 事件：事件捕获、Outbox 持久化、事件发布和清空必须协调，避免数据库提交与事件投递之间丢失事件。
 
 ### Verification status / 验证状态
 

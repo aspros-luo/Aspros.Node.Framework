@@ -8,7 +8,7 @@
 
 The Domain baseline is established. Infrastructure now has an initial explicit resource lifecycle coordinator implementation; runtime verification and provider capabilities remain pending.
 
-Domain 首版基线已经建立。Infrastructure 现已包含轻量的显式资源生命周期协调器；各项 Provider 能力仍在逐步实现和验证。
+Domain 首版基线已经建立。Infrastructure 已加入轻量的显式资源生命周期协调器代码，尚待运行验证；各项 Provider 能力仍未完成。
 
 This project is designed independently, using [Aspros.Basic.Framework](https://github.com/aspros-luo/Aspros.Basic.Framework) as an architectural reference rather than mechanically translating its .NET implementation.
 

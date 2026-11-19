@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   InfrastructureRuntime,
   type InfrastructureResource,
-} from "../../src/runtime/infrastructure-runtime.js";
+} from "../../src/index.js";
 
 function createResource(
   name: string,

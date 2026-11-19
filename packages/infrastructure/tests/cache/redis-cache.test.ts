@@ -20,6 +20,7 @@ vi.mock("redis", () => ({
 }));
 
 import { RedisCache } from "../../src/cache/redis-cache.js";
+import { InfrastructureRuntime } from "../../src/runtime/infrastructure-runtime.js";
 
 describe("RedisCache", () => {
   beforeEach(() => {
@@ -45,21 +46,44 @@ describe("RedisCache", () => {
     expect(() => new RedisCache({ url: "http://localhost:6379", onError })).toThrow(/redis:\/\//i);
     expect(() => new RedisCache({ url: "redis://localhost:6379", connectTimeoutMs: 0, onError }))
       .toThrow(/connectTimeoutMs/);
+    expect(() => new RedisCache({ url: "redis://localhost:6379", startupTimeoutMs: 0, onError }))
+      .toThrow(/startupTimeoutMs/);
 
     const cache = new RedisCache({ url: "redis://localhost:6379", keyPrefix: "app:", onError });
     expect(client.on).toHaveBeenCalledWith("error", expect.any(Function));
     expect(cache.name).toBe("redis-cache");
   });
 
-  it("connects and closes through the InfrastructureResource lifecycle", async () => {
+  it("starts and stops through InfrastructureRuntime", async () => {
     const cache = new RedisCache({ url: "redis://localhost:6379", onError: vi.fn() });
+    const runtime = new InfrastructureRuntime().register(cache);
 
-    await cache.start();
+    await runtime.start();
+    expect(runtime.state).toBe("started");
     expect(client.connect).toHaveBeenCalledOnce();
 
-    await cache.stop();
-    await cache.stop();
+    await runtime.stop();
+    await runtime.stop();
+    expect(runtime.state).toBe("stopped");
     expect(client.close).toHaveBeenCalledOnce();
+  });
+
+  it("fails startup within the configured timeout and destroys the client", async () => {
+    vi.useFakeTimers();
+    try {
+      client.connect.mockImplementationOnce(() => new Promise<void>(() => undefined));
+      const cache = new RedisCache({
+        url: "redis://localhost:6379",
+        startupTimeoutMs: 250,
+        onError: vi.fn(),
+      });
+      const start = cache.start();
+      await vi.advanceTimersByTimeAsync(250);
+      await expect(start).rejects.toThrow(/startup exceeded 250 ms/);
+      expect(client.destroy).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("cleans up a partially opened client when startup fails", async () => {
@@ -96,6 +120,9 @@ describe("RedisCache", () => {
     expect(await cache.get("missing")).toBeNull();
     client.get.mockResolvedValueOnce('{"id":7}');
     expect(await cache.get<{ id: number }>("trade")).toEqual({ id: 7 });
+
+    client.get.mockResolvedValueOnce("{not-json");
+    await expect(cache.get("corrupted")).rejects.toThrow(/not valid JSON/);
   });
 
   it("supports delete and expiration without exposing raw Redis commands", async () => {

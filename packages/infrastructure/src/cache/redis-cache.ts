@@ -139,6 +139,10 @@ export class RedisCache implements InfrastructureResource {
 }
 
 function assertRedisCacheOptions(options: RedisCacheOptions): void {
+  if (typeof options.onError !== "function") {
+    throw new TypeError("Redis cache onError callback is required.");
+  }
+
   let connection: URL;
   try {
     connection = new URL(options.url);

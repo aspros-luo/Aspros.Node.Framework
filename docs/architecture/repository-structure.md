@@ -26,9 +26,10 @@ Aspros.Node.Framework/
     │   └── package.json, tsconfig*.json, README.md
     ├── infrastructure/
     │   ├── src/runtime/infrastructure-runtime.ts
+│   ├── src/cache/redis-cache.ts
     │   ├── src/index.ts
-    │   ├── tests/runtime/
-    │   ├── examples/runtime-lifecycle.ts
+    │   ├── tests/runtime/ and tests/cache/
+    │   ├── examples/runtime-lifecycle.ts and redis-cache.ts
     │   ├── package.json
     │   ├── tsconfig*.json
     │   └── README.md
@@ -36,9 +37,9 @@ Aspros.Node.Framework/
     └── runtime-node/      # platform-specific runtime integration / 平台专属运行时集成
 ~~~
 
-Infrastructure now contains a provider-neutral lifecycle coordinator under `src/runtime`, with focused tests and an example. Other capability folders are added only when their designs are approved; empty directories and speculative public APIs remain intentionally avoided.
+Infrastructure now contains a provider-neutral lifecycle coordinator and a first Redis JSON cache adapter under `src/cache`, with focused tests and bilingual usage examples. The Redis integration test is opt-in. Other capability folders are added only when their designs are approved; empty directories and speculative public APIs remain intentionally avoided.
 
-Infrastructure 现已在 `src/runtime` 中提供与供应商无关的生命周期协调器，并配套针对性测试和示例。其他能力目录仍只在设计获准后创建；继续避免空目录和猜测性公共 API。
+Infrastructure 现已在 `src/runtime` 中提供与供应商无关的生命周期协调器，并在 `src/cache` 中提供首个 Redis JSON 缓存适配器，配套针对性测试和双语示例。Redis 集成测试采用显式 opt-in。其他能力目录仍只在设计获准后创建；继续避免空目录和猜测性公共 API。
 
 ## 2. Domain Directory Responsibilities / Domain 目录职责
 

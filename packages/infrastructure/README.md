@@ -10,9 +10,9 @@ The package now includes a small, provider-neutral lifecycle coordinator for exp
 
 本 package 现已提供一个轻量、与供应商无关的生命周期协调器，用于管理显式注册的进程级资源。数据库、Redis、消息、ClickHouse、HTTP/gRPC、服务发现以及供应商专属可观测性适配器仍未实现。
 
-The lifecycle coordinator has implementation, focused tests, and a usage example; runtime execution has not yet been verified in the project owner's local environment. Provider capabilities remain unimplemented until their real adapters, tests, examples, and verification evidence exist.
+The lifecycle coordinator has implementation, focused tests, and a usage example; runtime execution has not yet been verified. Provider capabilities remain unimplemented until their real adapters, tests, examples, and verification evidence exist.
 
-生命周期协调器已具备实现、针对性测试和使用示例，但尚未在项目所有者的本地环境中执行验证。各 Provider 能力仍需真实适配器、测试、示例和验证证据，完成后才能视为已实现。
+生命周期协调器已具备实现、针对性测试和使用示例，但尚未完成运行验证。各 Provider 能力仍需真实适配器、测试、示例和验证证据，完成后才能视为已实现。
 
 ## Responsibility / 职责
 

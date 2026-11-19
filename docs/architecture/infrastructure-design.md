@@ -1,6 +1,6 @@
 # Infrastructure Design / Infrastructure 设计
 
-**Status / 状态：.NET persistence audit complete; isolated MikroORM/MySQL POC and explicit runtime lifecycle coordinator code added; runtime verification pending / .NET 持久化审计已完成；独立 MikroORM/MySQL POC 与显式运行时生命周期协调器代码已加入，待真实运行验证**
+**Status / 状态：.NET persistence audit and isolated MikroORM/MySQL POC complete at code level; lifecycle coordinator and first Redis cache adapter added; runtime and provider integration verification pending / .NET 持久化审计与独立 MikroORM/MySQL POC 已完成代码级工作；生命周期协调器和首个 Redis 缓存适配器已加入；运行时及 Provider 集成验证待完成**
 
 This document is the single source of truth for Infrastructure scope, capability mapping, and provider decisions. It is a design baseline, not a claim that listed capabilities are implemented.
 
@@ -41,7 +41,7 @@ The reference framework is a source of proven requirements and behavior, not a m
 | UnitOfWork | Coordinate persistence operations and explicit transaction boundaries. / 协调持久化操作和显式事务边界。 | Implement Domain IUnitOfWork with explicit register/commit semantics; transactions are opt-in. / 实现具备显式 Register/Commit 语义的 Domain IUnitOfWork；事务默认关闭。 |
 | In-process IEvent / IEventHandler | Optional process-local event dispatch. / 可选的进程内事件分发。 | Keep separate from durable broker delivery; document failure and ordering semantics. / 与持久化消息投递分离，并明确失败与顺序语义。 |
 | CAP / MassTransit / MQ | Durable cross-process messaging, retries, acknowledgements, and eventual consistency. / 跨进程可靠消息、重试、确认和最终一致性。 | Evaluate Node broker libraries and Outbox/Inbox support before selecting providers. / 选型前评估 Node 消息库及 Outbox/Inbox 支持。 |
-| Redis / HybridCache-like behavior | Cache, optional multi-level cache, and distributed coordination where justified. / 缓存、可选多级缓存，以及有充分理由时的分布式协调。 | Define use-case-oriented contracts; do not expose Redis commands as the framework API. / 按使用场景定义契约，不把 Redis 命令直接暴露为框架 API。 |
+| Redis / HybridCache-like behavior | Cache, optional multi-level cache, and distributed coordination where justified. / 缓存、可选多级缓存，以及有充分理由时的分布式协调。 | Start with a small JSON cache adapter over official node-redis; keep locks, local L1 cache, and generic provider abstractions deferred until real use cases require them. / 首先基于官方 node-redis 实现精简 JSON 缓存适配器；分布式锁、本地 L1 缓存和通用 Provider 抽象均延后到真实用例需要时再设计。 |
 | HTTP client resilience | Outbound HTTP client composition, timeout, retry, circuit breaking, and concurrency limits. / 出站 HTTP 客户端组合、超时、重试、熔断和并发限制。 | Prefer composable policies and standard Fetch/Undici-compatible integration; confirm runtime baseline first. / 优先采用可组合策略和兼容 Fetch/Undici 的集成，先确认运行时基线。 |
 | ASP.NET Core Web API | Inbound HTTP hosting, middleware, rate limiting, and request lifecycle integration. / 入站 HTTP 宿主、中间件、限流和请求生命周期集成。 | Keep framework-neutral contracts separate from the selected Node HTTP host. / 将框架无关契约与选定的 Node HTTP 宿主分离。 |
 | gRPC Server / ClientFactory | RPC server hosting and typed client registration. / RPC 服务端宿主和类型化客户端注册。 | Preserve service-owned proto/contracts; evaluate Node gRPC implementation and operational support. / 保留业务服务自行维护 proto/契约的方式，评估 Node gRPC 实现及运维支持。 |
@@ -577,6 +577,35 @@ The first runtime foundation is added as `InfrastructureRuntime` in `@aspros/inf
 
 **验证状态：** 当前加入了针对顺序、逆序清理、启动回滚、关闭失败后继续清理、清理失败重试、重复/迟到注册和非法状态转换的 Vitest 测试，并已纳入工作区常规命令。但当前环境尚未实际执行测试和 TypeScript 检查；静态审查不等于运行验收。
 
+## 10.8 Redis Cache Adapter / Redis 缓存适配器
+
+The first cache implementation uses the official `redis` (node-redis) package, pinned to `6.3.1`. Redis documents node-redis as its recommended Node.js client. The adapter remains inside `@aspros/infrastructure`; the SDK is not exposed to Domain. [Redis Node.js client guide](https://redis.io/docs/latest/develop/clients/nodejs/) and [connection lifecycle](https://redis.io/docs/latest/develop/clients/nodejs/connect/).
+
+首个缓存实现采用 Redis 官方 `redis`（node-redis）客户端，固定版本 `6.3.1`。Redis 官方将 node-redis 推荐为 Node.js 客户端。适配器位于 `@aspros/infrastructure` 内部，不将 SDK 引入 Domain。
+
+**Initial API / 首版 API：**
+
+- `get<T>(key)` returns a JSON-decoded value or `null` for a miss. / `get<T>(key)` 返回 JSON 反序列化后的值；未命中返回 `null`。
+- `set(key, value, { ttlSeconds? })` stores JSON data; TTL is optional and expressed in seconds. `null` and `undefined` are rejected to avoid confusing a cached null with a miss. / `set` 保存 JSON 数据；TTL 可选，单位为秒。拒绝 `null` 和 `undefined`，避免缓存空值与未命中混淆。
+- `delete(key)` removes one key and reports whether it existed. / `delete(key)` 删除单个 Key，并返回它是否存在。
+- `expire(key, ttlSeconds)` updates an existing key's expiration. / `expire(key, ttlSeconds)` 更新已有 Key 的过期时间。
+- An optional key prefix provides simple namespace isolation. No key scanning or broad flush API is exposed. / 可选 Key 前缀用于简单命名空间隔离。不暴露 Key 扫描或全量清理 API。
+
+**Lifecycle and failure boundaries / 生命周期与故障边界：**
+
+- The host supplies the Redis URL and error callback; Infrastructure does not read `process.env` or choose a logger. / Redis URL 和错误回调由宿主提供；Infrastructure 不读取 `process.env`，也不选择日志库。
+- `RedisCache` implements `InfrastructureResource`; the host registers it with `InfrastructureRuntime`. Startup cleans up a partially opened client before propagating a connection error. / `RedisCache` 实现 `InfrastructureResource`，由宿主注册到 `InfrastructureRuntime`。连接失败时，适配器先清理部分打开的客户端，再向外抛出异常。
+- Commands require a ready connection. The offline command queue is disabled by default so cache operations are not silently delayed and replayed after reconnect. The host still owns business-level fallback and retry decisions. / 命令要求连接处于 Ready 状态。默认关闭离线命令队列，避免缓存操作在断线期间被静默延迟并于重连后重放。业务级降级与重试仍由宿主/业务用例负责。
+- The adapter relies on node-redis reconnect behavior; it does not create another connection pool, retry framework, circuit breaker, or health-check subsystem. / 适配器使用 node-redis 自身的重连行为，不另造连接池、重试框架、熔断器或健康检查子系统。
+
+**Deliberately deferred / 刻意暂缓：**
+
+- Provider-neutral cache port, local L1/multi-level cache, distributed locks, idempotency primitives, pub/sub, and Redis Streams. / 通用缓存端口、本地 L1/多级缓存、分布式锁、幂等基础能力、Pub/Sub 和 Redis Streams。
+- Application cache-aside policy, cache invalidation strategy, stampede protection, and business-specific serialization/versioning. / Application 层 Cache-Aside 策略、缓存失效策略、缓存击穿保护，以及业务专属序列化/版本策略。
+- Cluster/Sentinel topology and TLS certificate-file loading. The host can provide a URL for a standalone or TLS endpoint; advanced topologies require a concrete deployment requirement. / Cluster/Sentinel 拓扑和 TLS 证书文件加载。宿主可提供普通或 TLS 端点 URL；高级拓扑待具体部署需求出现后再支持。
+
+**Verification / 验证：** focused unit tests and an opt-in Redis integration test are included. The normal workspace test excludes external Redis integration; run it explicitly with `REDIS_CACHE_URL=redis://... pnpm --filter @aspros/infrastructure test:redis`. Neither the unit tests nor the integration test have been executed in the current environment. / 已加入针对性单元测试和可选 Redis 集成测试。常规工作区测试不依赖外部 Redis；显式设置 `REDIS_CACHE_URL` 并运行上述命令即可执行集成测试。当前环境尚未实际执行单元测试或集成测试。
+
 ## 11. Current Result and Next Step / 当前结论与下一步
 
 **Audited / 已审计：** tracked .NET Database, Repository, UnitOfWork, Dapper and migration design files. Transaction ownership and Domain/Infrastructure boundary risks are recorded above.
@@ -595,7 +624,7 @@ The first runtime foundation is added as `InfrastructureRuntime` in `@aspros/inf
 
 **Next / 下一步：** after the local Docker environment is ready, run typecheck/unit tests and verify the Register/Commit and Migration Runner POCs against the disposable MySQL database. Cover default non-transactional scope, explicit transaction rollback, new/dirty/deleted registration, fresh migration apply, a second no-op apply after success, read-only status against both an empty and initialized history table, and a simulated partial-DDL state that the runner must reject. Inspect the structured start/completion/failure logs. The accepted decision is lightweight Schema preflight only; full column/index/foreign-key drift validation is deferred until a concrete deployment or operational requirement justifies its maintenance cost. Do not create a second schema source merely for completeness. Keep database provisioning outside the framework. The generic resource lifecycle coordinator implementation has been added, but runtime verification is pending. Defer OS signal handling, request draining, deployment locking, and host-specific shutdown policy until a real service host and deployment target define their requirements. / 本地 Docker 环境准备好后，执行类型检查、单元测试，并在一次性 MySQL 数据库中验证 Register/Commit 与 Migration Runner POC。验证默认不显式开启事务、显式事务回滚、新增/修改/删除登记、首次 Migration、成功后的第二次无操作执行、空历史表和已初始化历史表下的只读状态查询，以及 Runner 必须拒绝执行的模拟部分 DDL 残留状态。检查结构化开始/完成/失败日志。当前已确认仅采用轻量级 Schema 部署前置检查；完整的列/索引/外键漂移校验暂缓，只有具体部署或运维需求足以覆盖长期维护成本时才重新评估。通用资源生命周期协调器代码已加入，但尚待运行验证；操作系统信号处理、请求排空、部署锁和宿主专属关闭策略，待真实服务宿主与部署目标明确后再建设。
 
-Application remains deferred until required Infrastructure capabilities have working implementations and verification evidence.
+The Redis adapter is now implemented at code level; next work should verify its package build and unit tests, then add Redis integration evidence when a local Redis service is available. Do not expand into locks, messaging, or multi-level caching before a concrete business use case exists. Application remains deferred until the required Infrastructure capabilities have working implementations and verification evidence.
 
 所需 Infrastructure 能力具备可运行实现和验证证据之前，Application 仍保持延期。
 

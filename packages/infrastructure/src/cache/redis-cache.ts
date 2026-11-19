@@ -173,6 +173,9 @@ function assertRedisCacheOptions(options: RedisCacheOptions): void {
   if (connection.protocol !== "redis:" && connection.protocol !== "rediss:") {
     throw new TypeError("Redis cache URL must use redis:// or rediss://.");
   }
+  if (connection.hostname.length === 0) {
+    throw new TypeError("Redis cache URL must include a Redis host.");
+  }
   if (options.keyPrefix !== undefined && options.keyPrefix.length === 0) {
     throw new TypeError("Redis cache keyPrefix must not be empty when provided.");
   }

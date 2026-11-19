@@ -6,9 +6,9 @@
 
 ## Project Status / 项目状态
 
-The Domain baseline is established. Infrastructure now has an initial explicit resource lifecycle coordinator implementation; runtime verification and provider capabilities remain pending.
+The Domain baseline is established. Infrastructure now has an explicit resource lifecycle coordinator and a first Redis JSON cache adapter. Runtime and Redis integration verification remain pending.
 
-Domain 首版基线已经建立。Infrastructure 已加入轻量的显式资源生命周期协调器代码，尚待运行验证；各项 Provider 能力仍未完成。
+Domain 首版基线已经建立。Infrastructure 已加入轻量生命周期协调器和首个 Redis JSON 缓存适配器；运行时与 Redis 集成验证仍待完成。
 
 This project is designed independently, using [Aspros.Basic.Framework](https://github.com/aspros-luo/Aspros.Basic.Framework) as an architectural reference rather than mechanically translating its .NET implementation.
 
@@ -28,7 +28,7 @@ A capability is implemented only when working code, tests, and verification evid
 ## Packages / 模块
 
 - `packages/domain` — domain kernel, repository and Unit of Work contracts. / 领域内核、Repository 和 Unit of Work 契约。
-- `packages/infrastructure` — technical adapters and runtime integration. A provider-neutral lifecycle coordinator is implemented; database, cache, messaging and other provider adapters are not yet included. / 技术适配器与运行时集成层。已加入与供应商无关的生命周期协调器代码，尚待运行验证；数据库、缓存、消息等 Provider 适配器尚未加入。
+- `packages/infrastructure` — technical adapters and runtime integration. A provider-neutral lifecycle coordinator and a Redis JSON cache adapter are implemented; database production adapters, messaging and other providers remain pending. / 技术适配器与运行时集成层。已加入与供应商无关的生命周期协调器和 Redis JSON 缓存适配器；生产数据库、消息等 Provider 仍待实现。
 - `packages/application` — planned use cases and orchestration, designed after required infrastructure capabilities are implemented and verified. / 计划中的应用用例与编排，待所需基础设施能力实现并验证后再设计。
 - `packages/runtime-node` — planned Node.js-specific integrations. / 计划中的 Node.js 专属集成。
 - `examples/` — later formal end-to-end microservice demos. / 后续正式端到端微服务 Demo。

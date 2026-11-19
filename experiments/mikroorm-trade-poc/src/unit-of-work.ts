@@ -5,7 +5,14 @@ import { MikroOrmTradeRepository } from "./trade-repository.js";
 import { MikroOrmTradePersistenceWriter } from "./trade-persistence-writer.js";
 
 type ChangeKind = "new" | "dirty" | "deleted";
-type UnitOfWorkState = "active" | "starting-transaction" | "committing" | "rolling-back" | "committed" | "rolled-back" | "failed";
+type UnitOfWorkState =
+  | "active"
+  | "starting-transaction"
+  | "committing"
+  | "rolling-back"
+  | "committed"
+  | "rolled-back"
+  | "failed";
 
 interface RegisteredChange {
   readonly aggregate: Trade;
@@ -13,11 +20,13 @@ interface RegisteredChange {
 }
 
 /**
- * One isolated persistence context with opt-in transaction ownership.
- * 一个隔离的持久化上下文，事务由调用方选择性开启。
+ * One isolated, sequential persistence context with opt-in transaction ownership.
+ * 一个隔离且顺序执行的持久化上下文，事务由调用方选择性开启。
  *
- * Register only records intent. Commit maps and flushes all changes.
- * Register 只登记意图；Commit 才映射并 Flush 全部变更。
+ * Register only records intent. Commit maps and flushes all changes. Overlapping lifecycle
+ * operations are rejected; concurrent requests/jobs must use separate scopes.
+ * Register 只登记意图；Commit 才映射并 Flush 全部变更。重叠的生命周期操作会被拒绝；
+ * 并发请求/任务必须使用不同 Scope。
  */
 export class MikroOrmTradeUnitOfWork implements IUnitOfWork {
   private state: UnitOfWorkState = "active";

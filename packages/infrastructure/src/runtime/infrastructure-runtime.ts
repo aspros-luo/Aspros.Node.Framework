@@ -12,7 +12,7 @@ export interface InfrastructureResource {
   /** Acquire this resource's process-level resources. / 初始化并获取该资源的进程级资源。 */
   start(): void | Promise<void>;
 
-  /** Release resources acquired by start(). / 释放 start() 获取的资源。 */
+  /** Release resources acquired by start(); implementations should tolerate retries. / 释放 start() 获取的资源；实现应允许安全重试。 */
   stop(): void | Promise<void>;
 }
 

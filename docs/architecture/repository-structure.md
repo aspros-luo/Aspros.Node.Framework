@@ -1,6 +1,6 @@
 # Repository Structure / 仓库结构
 
-**Status / 状态：Domain baseline established; Infrastructure package scaffold initialized / Domain 基线已建立；Infrastructure Package 骨架已初始化**
+**Status / 状态：Domain baseline established; Infrastructure lifecycle coordinator implemented, provider verification pending / Domain 基线已建立；Infrastructure 生命周期协调器已实现，Provider 验证待完成**
 
 ## 1. Repository Shape / 仓库整体结构
 

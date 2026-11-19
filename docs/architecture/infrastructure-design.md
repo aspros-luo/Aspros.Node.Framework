@@ -555,9 +555,9 @@ This is still an experiment, not a production migration framework. Production ad
 
 ## 10.7 Explicit Infrastructure Resource Lifecycle / 显式基础设施资源生命周期
 
-The first runtime foundation is implemented as `InfrastructureRuntime` in `@aspros/infrastructure`. It coordinates process-level resources that the application host explicitly registers; it is deliberately not a dependency-injection container.
+The first runtime foundation is added as `InfrastructureRuntime` in `@aspros/infrastructure`. It coordinates process-level resources that the application host explicitly registers; it is deliberately not a dependency-injection container.
 
-首个运行时基础能力已在 `@aspros/infrastructure` 中实现为 `InfrastructureRuntime`。它负责协调由应用宿主显式注册的进程级资源；有意不将其设计为依赖注入容器。
+首个运行时基础能力已在 `@aspros/infrastructure` 中加入，名称为 `InfrastructureRuntime`。它负责协调由应用宿主显式注册的进程级资源；有意不将其设计为依赖注入容器。
 
 **Contract and behavior / 契约与行为：**
 
@@ -566,6 +566,7 @@ The first runtime foundation is implemented as `InfrastructureRuntime` in `@aspr
 - Duplicate/blank names and registration after startup are rejected. Lifecycle transitions are one-way; a stopped runtime is not restarted or reused. / 拒绝重复/空名称和启动后注册。生命周期状态单向流转；停止后的 Runtime 不支持重启或复用。
 - If a resource fails to start, previously started resources are stopped in reverse order. A resource whose own `start()` rejects must clean up any partial initialization it performed before rejecting. / 某个资源启动失败时，之前已成功启动的资源按相反顺序停止。资源自身的 `start()` 如果在部分初始化后失败，必须在抛出异常前清理自身的部分状态。
 - Shutdown attempts every started resource even if one `stop()` fails. Failed cleanup resources remain eligible for a subsequent `stop()` retry; resource stop handlers must therefore tolerate retries. Cleanup errors are reported as an `AggregateError`. / 即使某个 `stop()` 失败，关闭流程仍会尝试释放其他已启动资源。清理失败的资源会保留，以便后续再次调用 `stop()` 重试；因此资源的 stop handler 必须能够安全重试。清理错误通过 `AggregateError` 报告。
+- Configuration ownership stays with the service host: it reads environment/files/secret stores, resolves precedence, and passes typed options to provider factories. Provider adapters validate their own options. Infrastructure does not add a generic configuration registry or read `process.env` directly. / 配置由服务宿主负责：宿主读取环境变量/配置文件/密钥存储、处理配置优先级，并将类型化选项传给 Provider 工厂；Provider 适配器负责校验自身选项。Infrastructure 不增加通用配置注册中心，也不直接读取 `process.env`。
 - The coordinator does not install OS signal handlers, stop accepting HTTP traffic, drain requests/jobs, own configuration, or decide readiness. Those responsibilities belong to the service host and the capabilities that actually need them. / 协调器不安装操作系统信号处理器、不停止接收 HTTP 流量、不排空请求/后台任务、不拥有配置，也不决定 Readiness。这些职责属于服务宿主及真正需要它们的能力。
 
 **Why this boundary / 为什么这样划分：** this is lifecycle composition, not a general-purpose container. It is enough for a host to initialize a database client, cache client, and broker in a predictable order without introducing a second DI system or hiding ownership. A resource remains responsible for its own partial-start cleanup; the coordinator only owns resources whose `start()` completed successfully.

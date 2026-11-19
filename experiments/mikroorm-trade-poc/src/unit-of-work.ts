@@ -75,6 +75,7 @@ export class MikroOrmTradeUnitOfWork implements IUnitOfWork {
         }
       }
       this.state = "failed";
+      this.changes.clear();
       this.em.clear();
       throw error;
     }

@@ -6,9 +6,9 @@ Aspros Node Framework 的技术适配器与运行时集成层。
 
 ## Current Status / 当前状态
 
-The package now includes a small, provider-neutral lifecycle coordinator for explicitly registered process-level resources. Database, Redis, messaging, ClickHouse, HTTP/gRPC, service-discovery, and provider-specific observability adapters are not implemented yet.
+The package now includes a small, provider-neutral lifecycle coordinator for explicitly registered process-level resources. A first Redis JSON cache adapter is now implemented with lifecycle integration, focused unit tests, an opt-in Redis integration test, and a usage example. Database production adapters, messaging, ClickHouse, HTTP/gRPC, service discovery, and provider-specific observability adapters remain unimplemented.
 
-本 package 现已提供一个轻量、与供应商无关的生命周期协调器，用于管理显式注册的进程级资源。数据库、Redis、消息、ClickHouse、HTTP/gRPC、服务发现以及供应商专属可观测性适配器仍未实现。
+本 package 现已提供轻量生命周期协调器，以及首个 Redis JSON 缓存适配器。Redis 适配器已接入生命周期，配有针对性单元测试、可选 Redis 集成测试和使用示例。生产数据库适配器、消息、ClickHouse、HTTP/gRPC、服务发现和供应商专属可观测性适配器仍未实现。
 
 The lifecycle coordinator has implementation, focused tests, and a usage example; runtime execution has not yet been verified. Provider capabilities remain unimplemented until their real adapters, tests, examples, and verification evidence exist.
 
@@ -36,6 +36,6 @@ See [Infrastructure Design / Infrastructure 设计](../../docs/architecture/infr
 
 ## Examples and Tests / 示例与测试
 
-The public entry point exports `InfrastructureRuntime` and `InfrastructureResource`. See [the lifecycle example](./examples/runtime-lifecycle.ts). The coordinator is not a dependency-injection container: the host creates clients and explicitly registers their start/stop operations. Tests run with `pnpm --filter @aspros/infrastructure test`.
+The public entry point exports `InfrastructureRuntime`, `InfrastructureResource`, and `RedisCache`. See [the lifecycle example](./examples/runtime-lifecycle.ts) and [Redis cache example](./examples/redis-cache.ts). The host supplies typed Redis options and an error handler, then explicitly registers the cache with the runtime. Run unit tests with `pnpm --filter @aspros/infrastructure test`; run the opt-in Redis integration test with `REDIS_CACHE_URL=redis://... pnpm --filter @aspros/infrastructure test:redis`.
 
-公共入口导出 `InfrastructureRuntime` 和 `InfrastructureResource`。参见[生命周期示例](./examples/runtime-lifecycle.ts)。协调器不是依赖注入容器：具体客户端由宿主创建，再显式注册其启动/停止操作。使用 `pnpm --filter @aspros/infrastructure test` 运行测试。
+公共入口导出 `InfrastructureRuntime`、`InfrastructureResource` 和 `RedisCache`。参见[生命周期示例](./examples/runtime-lifecycle.ts)及 [Redis 缓存示例](./examples/redis-cache.ts)。宿主提供类型化 Redis 配置和错误处理回调，再将缓存实例显式注册到 Runtime。使用 `pnpm --filter @aspros/infrastructure test` 运行单元测试；使用 `REDIS_CACHE_URL=redis://... pnpm --filter @aspros/infrastructure test:redis` 运行可选 Redis 集成测试。

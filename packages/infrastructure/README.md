@@ -6,13 +6,13 @@ Aspros Node Framework 的技术适配器与运行时集成层。
 
 ## Current Status / 当前状态
 
-This package is an initialized workspace scaffold. It does not yet provide database, Redis, messaging, ClickHouse, HTTP/gRPC, service-discovery, or observability implementations.
+The package now includes a small, provider-neutral lifecycle coordinator for explicitly registered process-level resources. Database, Redis, messaging, ClickHouse, HTTP/gRPC, service-discovery, and provider-specific observability adapters are not implemented yet.
 
-本 package 目前仅完成工作区初始化，尚未提供数据库、Redis、消息、ClickHouse、HTTP/gRPC、服务发现或可观测性实现。
+本 package 现已提供一个轻量、与供应商无关的生命周期协调器，用于管理显式注册的进程级资源。数据库、Redis、消息、ClickHouse、HTTP/gRPC、服务发现以及供应商专属可观测性适配器仍未实现。
 
-Do not treat the package entry point as evidence that any infrastructure capability is implemented. A capability is considered implemented only after its contract, working adapter, tests, and usage example are present and verified.
+The lifecycle coordinator has implementation, focused tests, and a usage example; runtime execution has not yet been verified in the project owner's local environment. Provider capabilities remain unimplemented until their real adapters, tests, examples, and verification evidence exist.
 
-不要将 package 入口文件视为基础设施能力已经实现的证据。只有具备契约、可运行适配器、测试和使用示例，并完成验证后，才能认定某项能力已经实现。
+生命周期协调器已具备实现、针对性测试和使用示例，但尚未在项目所有者的本地环境中执行验证。各 Provider 能力仍需真实适配器、测试、示例和验证证据，完成后才能视为已实现。
 
 ## Responsibility / 职责
 
@@ -36,6 +36,6 @@ See [Infrastructure Design / Infrastructure 设计](../../docs/architecture/infr
 
 ## Examples and Tests / 示例与测试
 
-No public infrastructure abstraction is exported yet. Focused examples and tests will be added alongside each capability; the package will not publish speculative interfaces or in-memory placeholders as production infrastructure.
+The public entry point exports `InfrastructureRuntime` and `InfrastructureResource`. See [the lifecycle example](./examples/runtime-lifecycle.ts). The coordinator is not a dependency-injection container: the host creates clients and explicitly registers their start/stop operations. Tests run with `pnpm --filter @aspros/infrastructure test`.
 
-当前尚未导出任何公共基础设施抽象。每项能力的示例和测试将与其实现同步加入；不会把猜测性接口或内存占位实现作为生产基础设施发布。
+公共入口导出 `InfrastructureRuntime` 和 `InfrastructureResource`。参见[生命周期示例](./examples/runtime-lifecycle.ts)。协调器不是依赖注入容器：具体客户端由宿主创建，再显式注册其启动/停止操作。使用 `pnpm --filter @aspros/infrastructure test` 运行测试。

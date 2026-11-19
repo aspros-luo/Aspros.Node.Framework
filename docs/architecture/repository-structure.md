@@ -1,6 +1,6 @@
 # Repository Structure / 仓库结构
 
-**Status / 状态：Domain baseline established; Infrastructure lifecycle coordinator code added, runtime/provider verification pending / Domain 基线已建立；Infrastructure 生命周期协调器代码已加入，Runtime/Provider 验证待完成**
+**Status / 状态：Domain baseline established; Infrastructure lifecycle coordinator and Redis cache adapter added; runtime/provider verification pending / Domain 基线已建立；Infrastructure 生命周期协调器和 Redis 缓存适配器已加入；Runtime/Provider 验证待完成**
 
 ## 1. Repository Shape / 仓库整体结构
 

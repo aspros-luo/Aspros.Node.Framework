@@ -68,9 +68,9 @@ Status 输出区分 `not-applied`、`partially-created-or-unlogged`、`applied` 
 
 **并发边界：** 不要从多个终端、CI Job 或部署副本并发运行 `poc:trade-migrate`。当前 POC Runner 不获取分布式锁或数据库 Migration 锁，调用方必须保证串行执行。生产部署编排必须在启动 Migration 进程前，提供按数据库/Schema 作用域隔离的部署互斥锁。
 
-When `MYSQL_POC_DATABASE_URL` is absent, the integration suite is skipped; ordinary mapper tests remain runnable. The integration test creates random IDs and deletes only the rows it created.
+When `MYSQL_POC_DATABASE_URL` is absent, the integration suite is skipped; ordinary mapper tests remain runnable. The integration tests create random IDs and delete only the rows they create. A concurrency case opens two independent Unit of Work transactions through separate forked EntityManagers on the same ORM instance, commits one, rolls back the other, and verifies that the committed data survives while the rolled-back data does not. It then performs another read through a fresh scope to prove that finishing a scope does not close the process-wide pool. This requires a MySQL pool capable of leasing at least two connections concurrently.
 
-未设置 `MYSQL_POC_DATABASE_URL` 时，集成测试会跳过；普通 Mapper 测试仍可运行。集成测试使用随机 ID，并且只删除自身创建的记录。
+未设置 `MYSQL_POC_DATABASE_URL` 时，集成测试会跳过；普通 Mapper 测试仍可运行。集成测试使用随机 ID，并且只删除自身创建的记录。并发测试会通过同一个 ORM 实例创建两个独立 Fork EntityManager 的 Unit of Work 事务，提交其中一个、回滚另一个，并验证已提交数据保留、回滚数据不存在。随后通过新 Scope 再次查询，证明 Scope 结束不会关闭进程级连接池。该测试要求 MySQL 连接池能够同时租出至少两条连接。
 
 ## Not Yet Implemented / 尚未实现
 

@@ -152,7 +152,6 @@ export class MikroOrmTradeUnitOfWork implements IUnitOfWork {
 
 /** A query repository and Unit of Work sharing one forked EntityManager. / 共享同一个 Fork EntityManager 的查询仓储与工作单元。 */
 export interface TradePersistenceScope {
-  readonly entityManager: EntityManager;
   readonly tradeRepository: MikroOrmTradeRepository;
   readonly unitOfWork: MikroOrmTradeUnitOfWork;
 }
@@ -171,7 +170,6 @@ export async function createTradePersistenceScope(
   const em = rootEntityManager.fork({ clear: true });
   const unitOfWork = new MikroOrmTradeUnitOfWork(em);
   return {
-    entityManager: em,
     tradeRepository: new MikroOrmTradeRepository(em),
     unitOfWork,
   };

@@ -1,6 +1,6 @@
 # Infrastructure Design / Infrastructure 设计
 
-**Status / 状态：.NET persistence audit complete; isolated MikroORM/MySQL POC and explicit runtime lifecycle coordinator implemented; runtime verification pending / .NET 持久化审计已完成；独立 MikroORM/MySQL POC 与显式运行时生命周期协调器已实现，待真实运行验证**
+**Status / 状态：.NET persistence audit complete; isolated MikroORM/MySQL POC and explicit runtime lifecycle coordinator code added; runtime verification pending / .NET 持久化审计已完成；独立 MikroORM/MySQL POC 与显式运行时生命周期协调器代码已加入，待真实运行验证**
 
 This document is the single source of truth for Infrastructure scope, capability mapping, and provider decisions. It is a design baseline, not a claim that listed capabilities are implemented.
 

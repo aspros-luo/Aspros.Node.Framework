@@ -14,7 +14,7 @@ const migrationHistoryTable = "poc_schema_migrations";
 const migrationDefinitions = [
   {
     migration: Migration20261117000100_CreateTradePocSchema,
-    createdTables: ["trades", "orders", "refunds", "poc_audit"],
+    createdTables: ["trades", "orders", "refunds"],
   },
 ] as const;
 

@@ -51,6 +51,10 @@ describe("RedisCache", () => {
 
     const cache = new RedisCache({ url: "redis://localhost:6379", keyPrefix: "app:", onError });
     expect(client.on).toHaveBeenCalledWith("error", expect.any(Function));
+    const errorHandler = client.on.mock.calls.find(([event]) => event === "error")?.[1];
+    const clientError = new Error("connection lost");
+    errorHandler?.(clientError);
+    expect(onError).toHaveBeenCalledWith(clientError);
     expect(cache.name).toBe("redis-cache");
   });
 
@@ -145,13 +149,17 @@ describe("RedisCache", () => {
   });
 
   it("supports delete and expiration without exposing raw Redis commands", async () => {
-    const cache = new RedisCache({ url: "redis://localhost:6379", onError: vi.fn() });
+    const cache = new RedisCache({
+      url: "redis://localhost:6379",
+      keyPrefix: "orders:",
+      onError: vi.fn(),
+    });
     await cache.start();
 
     expect(await cache.delete("trade:7")).toBe(true);
     expect(await cache.expire("trade:7", 30)).toBe(true);
-    expect(client.del).toHaveBeenCalledWith("trade:7");
-    expect(client.expire).toHaveBeenCalledWith("trade:7", 30);
+    expect(client.del).toHaveBeenCalledWith("orders:trade:7");
+    expect(client.expire).toHaveBeenCalledWith("orders:trade:7", 30);
   });
 
   it("rejects commands before startup and invalid keys, values, or TTLs", async () => {

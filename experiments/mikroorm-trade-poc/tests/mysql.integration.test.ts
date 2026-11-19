@@ -225,6 +225,32 @@ describe.skipIf(!clientUrl)("MikroORM MySQL Trade persistence", () => {
     }
   });
 
+  it("rejects overlapping transaction lifecycle operations within one Unit of Work", async () => {
+    const orm = await getOrm();
+    const scope = await createTradePersistenceScope(orm.em);
+
+    const starting = scope.unitOfWork.beginTransaction();
+    await expect(scope.unitOfWork.beginTransaction()).rejects.toThrow(/starting-transaction/i);
+    await starting;
+
+    const committing = scope.unitOfWork.commit();
+    await expect(scope.unitOfWork.rollback()).rejects.toThrow(/committing/i);
+    await committing;
+
+    expect(scope.unitOfWork.hasActiveTransaction).toBe(false);
+
+    // Completing one scope must not close the ORM instance or its shared pool.
+    // 一个 Scope 完成后，不得关闭 ORM 实例或共享连接池。
+    const nextScope = await createTradePersistenceScope(orm.em);
+    try {
+      expect(await nextScope.tradeRepository.findById(-1)).toBeNull();
+      await nextScope.unitOfWork.rollback();
+    } catch (error) {
+      try { await nextScope.unitOfWork.rollback(); } catch { /* Scope is already closed. */ }
+      throw error;
+    }
+  });
+
   it("isolates concurrent Unit of Work transactions while keeping the ORM pool available", async () => {
     const orm = await getOrm();
     const idBase = randomInt(100, 1_000_000_000);

@@ -26,6 +26,7 @@ describe("InfrastructureRuntime", () => {
     expect(runtime.state).toBe("started");
 
     await runtime.stop();
+    await runtime.stop();
     expect(runtime.state).toBe("stopped");
     expect(calls).toEqual([
       "start:database",
@@ -104,8 +105,9 @@ describe("InfrastructureRuntime", () => {
     await expect(runtime.start()).rejects.toThrow(/Cannot start/);
   });
 
-  it("rejects blank resource names", () => {
+  it("rejects blank and non-canonical resource names", () => {
     const runtime = new InfrastructureRuntime();
     expect(() => runtime.register(createResource("  "))).toThrow(/must not be empty/);
+    expect(() => runtime.register(createResource(" database "))).toThrow(/surrounding whitespace/);
   });
 });

@@ -33,7 +33,7 @@ export interface RedisCacheSetOptions {
 export class RedisCache implements InfrastructureResource {
   public readonly name = "redis-cache";
 
-  private readonly client;
+  private readonly client: ReturnType<typeof createClient>;
   private readonly keyPrefix: string;
   private state: "new" | "started" | "stopped" = "new";
 
@@ -43,9 +43,9 @@ export class RedisCache implements InfrastructureResource {
     this.keyPrefix = options.keyPrefix ?? "";
     this.client = createClient({
       url: options.url,
-      socket: options.connectTimeoutMs === undefined
-        ? undefined
-        : { connectTimeout: options.connectTimeoutMs },
+      ...(options.connectTimeoutMs === undefined
+        ? {}
+        : { socket: { connectTimeout: options.connectTimeoutMs } }),
       disableOfflineQueue: options.disableOfflineQueue ?? true,
     });
 

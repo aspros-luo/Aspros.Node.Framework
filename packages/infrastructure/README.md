@@ -10,9 +10,9 @@ The package now includes a small, provider-neutral lifecycle coordinator for exp
 
 本 package 现已提供轻量生命周期协调器，以及首个 Redis JSON 缓存适配器。Redis 适配器已接入生命周期，配有针对性单元测试、可选 Redis 集成测试和使用示例。生产数据库适配器、消息、ClickHouse、HTTP/gRPC、服务发现和供应商专属可观测性适配器仍未实现。
 
-The lifecycle coordinator has implementation, focused tests, and a usage example; runtime execution has not yet been verified. Provider capabilities remain unimplemented until their real adapters, tests, examples, and verification evidence exist.
+The lifecycle coordinator and Redis adapter have implementations, focused tests, and usage examples; neither has been executed in the current environment. The Redis adapter is code-complete for its initial scope, but runtime support remains unverified until package checks and the opt-in Redis integration test pass.
 
-生命周期协调器已具备实现、针对性测试和使用示例，但尚未完成运行验证。各 Provider 能力仍需真实适配器、测试、示例和验证证据，完成后才能视为已实现。
+生命周期协调器和 Redis 适配器均已具备实现、针对性测试和使用示例，但当前环境尚未执行。Redis 首版范围的代码已完成；只有在 package 检查和可选 Redis 集成测试通过后，才能确认运行支持。
 
 ## Responsibility / 职责
 

@@ -38,17 +38,9 @@ export class Migration20261117000100_CreateTradePocSchema extends Migration {
       CONSTRAINT fk_refunds_order_trade FOREIGN KEY (order_id, trade_id) REFERENCES orders (id, trade_id)
     ) ENGINE=InnoDB;`);
 
-    this.addSql(`CREATE TABLE IF NOT EXISTS poc_audit (
-      id BIGINT UNSIGNED NOT NULL,
-      trade_id INT NOT NULL,
-      message VARCHAR(255) NOT NULL,
-      PRIMARY KEY (id),
-      KEY ix_poc_audit_trade_id (trade_id)
-    ) ENGINE=InnoDB;`);
   }
 
   override async down(): Promise<void> {
-    this.addSql("DROP TABLE IF EXISTS poc_audit;");
     this.addSql("DROP TABLE IF EXISTS refunds;");
     this.addSql("DROP TABLE IF EXISTS orders;");
     this.addSql("DROP TABLE IF EXISTS trades;");

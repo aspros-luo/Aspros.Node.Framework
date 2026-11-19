@@ -7,4 +7,4 @@
  * 只有当某项能力具备经过审查的契约、可运行适配器、测试和使用示例后，
  * 才会从这里导出公共 API。
  */
-export {};
+export * from "./runtime/infrastructure-runtime.js";

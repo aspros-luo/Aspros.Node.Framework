@@ -16,10 +16,12 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.all.json",
     "typecheck:source": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run tests/runtime tests/cache/redis-cache.test.ts",
+    "test:redis": "vitest run tests/cache/redis-cache.integration.test.ts"
   },
   "dependencies": {
-    "@aspros/domain": "workspace:*"
+    "@aspros/domain": "workspace:*",
+    "redis": "6.3.1"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

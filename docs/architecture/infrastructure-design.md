@@ -37,7 +37,7 @@ The reference framework is a source of proven requirements and behavior, not a m
 | Reference capability / .NET 能力 | Node framework responsibility / Node 框架职责 | Initial decision / 当前决策 |
 |---|---|---|
 | EF Core | Relational persistence, mapping, migrations, and aggregate repository adapters. / 关系型持久化、映射、迁移和聚合仓储适配器。 | Select a Node ORM/query-builder only after evaluating transaction and migration behavior. / 评估事务与迁移能力后再选择 Node ORM/Query Builder。 |
-| Dapper / IDapperExecutor | Explicit SQL execution for complex queries, reports, and performance-sensitive reads. / 为复杂查询、报表和性能敏感读取提供显式 SQL 执行能力。 | Design a small executor that can share the active database transaction; do not duplicate ORM features. / 设计可复用当前数据库事务的精简执行器，不重复实现 ORM 功能。 |
+| Dapper / IDapperExecutor | Explicit SQL execution for complex queries, reports, and performance-sensitive reads. / 为复杂查询、报表和性能敏感读取提供显式 SQL 执行能力。 | Design a small read-only executor. It shares the ORM-managed connection pool but uses an independent query context; it never joins a Unit of Work transaction or exposes database mutations. / 设计精简的只读执行器。它复用 ORM 管理的连接池，但使用独立查询上下文；绝不加入 Unit of Work 事务，也不暴露数据库修改能力。 |
 | UnitOfWork | Coordinate persistence operations and explicit transaction boundaries. / 协调持久化操作和显式事务边界。 | Implement Domain IUnitOfWork with explicit register/commit semantics; transactions are opt-in. / 实现具备显式 Register/Commit 语义的 Domain IUnitOfWork；事务默认关闭。 |
 | In-process IEvent / IEventHandler | Optional process-local event dispatch. / 可选的进程内事件分发。 | Keep separate from durable broker delivery; document failure and ordering semantics. / 与持久化消息投递分离，并明确失败与顺序语义。 |
 | CAP / MassTransit / MQ | Durable cross-process messaging, retries, acknowledgements, and eventual consistency. / 跨进程可靠消息、重试、确认和最终一致性。 | Evaluate Node broker libraries and Outbox/Inbox support before selecting providers. / 选型前评估 Node 消息库及 Outbox/Inbox 支持。 |
@@ -141,10 +141,26 @@ The layout is provisional. Folders and public contracts are added when a capabil
 - Infrastructure must not import Application. / Infrastructure 不得导入 Application。
 - Domain Repository and Unit of Work contracts remain provider-neutral. / Domain Repository 和 Unit of Work 契约保持供应商无关。
 - Database transactions are owned by the database adapter and exposed through the Domain Unit of Work implementation where appropriate. / 数据库事务由数据库适配器管理，并在适当情况下通过 Domain Unit of Work 实现提供。
-- Raw SQL execution must reuse the active transaction when participating in the same atomic operation. / 原生 SQL 执行参与同一原子操作时必须复用当前事务。
+- Raw SQL Executor is a read-only query path for complex reads; it must not accept a Unit of Work, EntityManager, or transaction handle, and must not expose insert/update/delete or generic execute-for-mutation APIs. / Raw SQL Executor 是复杂读取的只读通道；不得接收 Unit of Work、EntityManager 或事务句柄，也不得暴露 insert/update/delete 或通用写入执行 API。
+- ORM and Raw SQL Executor share the ORM instance's process-level connection pool, but each uses an independent persistence/query context. Shared pool capacity does not imply shared EntityManager identity map or transaction. / ORM 与 Raw SQL Executor 共用 ORM 实例的进程级连接池，但各自使用独立的持久化/查询上下文。共享连接池容量不意味着共享 EntityManager Identity Map 或事务。
+- Cross-service data must be obtained through the owning service's API/RPC or an explicitly designed read integration; a service must not query another service's private database directly. / 跨服务数据必须通过数据所属服务的 API/RPC 或明确设计的读取集成获取；服务不得直接查询其他服务的私有数据库。
 - Do not publish a durable message before the database transaction commits. / 数据库事务提交前不得发布可靠消息。
 - A successful commit followed by a failed broker publish requires an Outbox-based recovery path when reliable delivery is promised. / 若承诺可靠投递，则事务成功但 Broker 发布失败时必须有 Outbox 恢复路径。
 - ClickHouse ingestion is asynchronous and must not be confused with transactional aggregate persistence. / ClickHouse 写入应采用异步方式，不得与事务聚合持久化混淆。
+
+### Request concurrency and database capacity / 请求并发与数据库容量
+
+Database load is controlled across layers, not delegated to one business service alone. The gateway provides ingress admission/rate limits; caches reduce avoidable reads; queues smooth asynchronous bursts and bound consumer concurrency; each service applies workload-aware concurrency limits, timeouts and backpressure; the database is protected by a planned connection budget, efficient queries and its own capacity limits. These mechanisms complement one another: a queue does not reduce sustained work, a cache does not protect write paths, and a service limit does not replace database capacity planning.
+
+数据库负载应由多个层次共同治理，而不是全部交给某一个业务服务。网关负责入口准入和限流；缓存减少不必要的读取；队列平滑异步流量峰值并限制消费者并发；各服务按工作负载设置并发上限、超时和背压；数据库则通过连接预算、查询效率和自身容量限制得到保护。这些机制互为补充：队列不能减少持续产生的工作量，缓存不能保护写入路径，服务限流也不能代替数据库容量规划。
+
+A connection pool is a bounded reusable connection resource, not a new connection per SQL statement. ORM and Raw SQL Executor share one pool per ORM instance/database configuration. The configured pool maximum is a per-process ceiling; the cluster-wide potential is the sum across all service replicas and other database clients. Reserve capacity for migrations, operations and other services instead of assigning the database's entire connection limit to one service.
+
+连接池是有上限、可复用的连接资源，并不是每执行一条 SQL 就新建一条连接。ORM 与 Raw SQL Executor 在每个 ORM 实例/数据库配置内共用一个连接池。连接池最大值是单进程上限；整个集群的潜在连接数是所有服务副本及其他数据库客户端的总和。必须为 Migration、运维连接和其他服务预留容量，不能把数据库的全部连接额度分配给单个服务。
+
+Independent EntityManager/query contexts may borrow different connections from the same pool at the same time. This intentionally isolates identity maps and transaction state while sharing a finite connection budget. Pool wait time, acquisition timeout, query duration, slow-query volume, active/idle connections and service replica count should be observable. A separate read-only pool or read replica is a later isolation option only when security requirements or measured contention justify its additional resource and operational cost.
+
+独立的 EntityManager/查询上下文可以同时从同一个连接池借用不同连接。这是在共享有限连接预算的同时，有意隔离 Identity Map 和事务状态。应观测连接等待时间、获取超时、查询耗时、慢查询数量、活动/空闲连接及服务副本数量。只有在安全要求或实际测得的资源争用足以证明其价值时，才考虑独立只读连接池或只读副本，并承担相应资源和运维成本。
 
 ## 6. Provider Decisions Still Open / 尚待确定的技术选型
 
@@ -154,7 +170,7 @@ No provider is selected by this initialization. Decisions require comparison bas
 
 - Relational database and default persistence provider. / 关系型数据库及默认持久化供应商。
 - ORM/query-builder and migration tooling. / ORM/Query Builder 与迁移工具。
-- Raw SQL executor and transaction sharing strategy. / 原生 SQL 执行器及事务共享策略。
+- Raw SQL executor provider binding and read-only query API details. Its architectural boundary is fixed: shared ORM pool, independent query context, no Unit of Work transaction participation. / 原生 SQL 执行器的 Provider 绑定和只读查询 API 细节。其架构边界已确定：共享 ORM 连接池、独立查询上下文、不参与 Unit of Work 事务。
 - Redis client and cache serialization contract. / Redis 客户端与缓存序列化契约。
 - Message broker(s), client libraries, and Outbox/Inbox strategy. / 消息代理、客户端库及 Outbox/Inbox 策略。
 - ClickHouse client and ingestion strategy. / ClickHouse 客户端和数据写入策略。
@@ -191,7 +207,7 @@ Each capability follows this sequence:
 | Explicit transaction | `BeginTransactionAsync` returns when either the UoW or DbContext already reports an active transaction. / UoW 或 DbContext 已报告活动事务时，BeginTransactionAsync 直接返回。 | Ownership must be explicit: joining a transaction is not the same as owning its commit/disposal. / 必须明确所有权；加入事务不等于拥有提交和释放责任。 |
 | Commit | Calls `SaveChangesAsync`, then commits only the transaction held in the UoW's `_currentTransaction`. / 先执行 SaveChangesAsync，再只提交 UoW 自己持有的事务。 | There is an ownership edge case if DbContext has an external transaction while `_currentTransaction` is null. / 若 DbContext 有外部事务而 `_currentTransaction` 为空，就存在事务所有权边界问题。 |
 | Rollback | Rolls back its owned transaction and clears the entire EF ChangeTracker. / 回滚自己持有的事务并清空整个 ChangeTracker。 | This detaches all tracked entities and does not restore already-mutated CLR objects. Failed contexts should be abandoned. / 这会分离所有已跟踪实体，也不会恢复已经修改的对象；失败上下文应被放弃。 |
-| Dapper | Uses the same DbContext connection and passes its current EF transaction to Dapper; opens the connection synchronously when needed. / 使用同一 DbContext 连接并传入当前 EF 事务；必要时同步打开连接。 | Preserve shared connection/transaction semantics, but use async I/O in Node. / 保留共享连接和事务语义；Node 版使用异步 I/O。 |
+| Dapper | Uses the same DbContext connection and passes its current EF transaction to Dapper; opens the connection synchronously when needed. / 使用同一 DbContext 连接并传入当前 EF 事务；必要时同步打开连接。 | This is a verified .NET behavior, not a Node requirement. The Node Raw SQL Executor is intentionally read-only and must not join the Unit of Work transaction. / 这是已核实的 .NET 行为，不是 Node 版必须继承的要求。Node Raw SQL Executor 有意限定为只读，并且不得加入 Unit of Work 事务。 |
 | DI lifetime | UoW, DapperExecutor, repositories and DbContext are scoped. / UoW、DapperExecutor、仓储和 DbContext 均为 Scoped。 | The Node equivalent must isolate mutable persistence context per request/job. / Node 版必须按请求/任务隔离可变持久化上下文。 |
 | Migration | The roadmap selects MySQL/Pomelo first, uses EF migrations, recommends reviewed production SQL/bundles, and rejects automatic schema migration on every service instance startup. / 路线文档先选 MySQL/Pomelo，采用 EF Migration，生产环境审核 SQL/Bundle，不建议每个服务实例启动时自动迁移。 | Preserve this operational policy. / 保留该运维原则。 |
 
@@ -238,7 +254,7 @@ Reasons / 原因：
 - MikroORM explicitly uses Data Mapper, Unit of Work and Identity Map patterns. / MikroORM 明确采用 Data Mapper、Unit of Work 和 Identity Map 模式。
 - `em.flush()` groups pending writes into a transaction when supported; `em.transactional()` and explicit `begin/commit/rollback` support wider transaction scopes. / 在支持的情况下，`em.flush()` 会将待处理写入集中到一个事务；也提供显式事务范围 API。
 - Its official driver list includes MySQL, and migrations are available through a separate package and CLI. / 官方 Driver 列表包含 MySQL，并通过独立 Package 和 CLI 提供 Migration。
-- EntityManager raw SQL execution uses the active transaction context, allowing a narrow raw-SQL adapter to participate in ORM transactions. / EntityManager 原生 SQL 使用活动事务上下文，使精简 SQL 适配器能够参与 ORM 事务。
+- MikroORM provides raw SQL/Kysely capabilities, but the selected executor must use an independent query context rather than the Unit of Work EntityManager. It shares the ORM-managed pool; provider APIs must not expose the active Unit of Work transaction to this read path. / MikroORM 提供原生 SQL/Kysely 能力，但选定的执行器必须使用独立查询上下文，而不是 Unit of Work 的 EntityManager。它复用 ORM 管理的连接池；Provider API 不得将活动 Unit of Work 事务暴露给该只读通道。
 - `EntitySchema` / `defineEntity` allow programmatic metadata, giving us a way to keep ORM decorators and provider types outside Domain. / `EntitySchema` / `defineEntity` 支持编程式元数据，可让 ORM Decorator 和 Provider 类型留在 Domain 之外。
 
 ### 9.3 Proposed Adapter Mapping / 建议适配方式
@@ -249,7 +265,7 @@ Reasons / 原因：
 | `IUnitOfWork.registerNew/registerDirty/registerDeleted` | Stage aggregate persistence intent in memory; no database write occurs until Commit. / 在内存中登记聚合持久化意图；Commit 前不执行数据库写入。 |
 | `IUnitOfWork.commit` | Map and flush all registered changes; commit an explicitly owned transaction if one was opened. / 映射并 Flush 所有已登记变更；若显式开启了事务，则提交该事务。 |
 | `IUnitOfWork.rollback` | Abandon the current persistence context; roll back only a transaction owned by that scope. Do not claim object instances are restored. / 放弃当前持久化上下文；只回滚该范围拥有的事务，不声称对象实例已恢复。 |
-| Dapper-like API / Dapper 类 API | Add a small `IRawSqlExecutor` only when a real query requires it; adapt `EntityManager.execute` so it uses the active transaction. / 仅在真实查询需要时增加精简 `IRawSqlExecutor`；适配 `EntityManager.execute` 并确保复用活动事务。 |
+| Dapper-like API / Dapper 类 API | Add a small read-only `IRawSqlExecutor` only when a real complex query requires it. Bind it to the same ORM-managed pool through an independent query context; return plain DTO/read-model data and do not accept the Unit of Work EntityManager or transaction. / 仅在真实复杂查询需要时增加精简只读 `IRawSqlExecutor`。通过独立查询上下文绑定到 ORM 管理的同一连接池；返回普通 DTO/Read Model，不接收 Unit of Work EntityManager 或事务。 |
 | Explicit multi-operation transaction / 多操作显式事务 | Use a callback-based transaction scope. The future Application layer owns its port; Infrastructure provides the MikroORM implementation. / 使用回调式事务范围；未来 Application 拥有端口，Infrastructure 提供 MikroORM 实现。 |
 
 The Domain `IUnitOfWork` includes an explicit, opt-in `beginTransaction()` operation. The Unit of Work owns only the transaction it starts; it does not expose provider transaction handles or propagation enums. Joining an ambient transaction, nested savepoints, and REQUIRES_NEW remain deferred until a concrete Application use case requires them and dedicated tests can define their behavior.
@@ -259,7 +275,7 @@ Domain 的 `IUnitOfWork` 包含显式、可选的 `beginTransaction()` 操作。
 ### 9.4 Transaction Semantics / 事务语义
 
 - Ordinary aggregate changes may be persisted with one ORM flush transaction. / 普通聚合变更可通过一次 ORM Flush 事务持久化。
-- Mixed ORM and raw-SQL work must run in one explicit transaction context. / ORM 与原生 SQL 混合操作必须运行在同一个显式事务上下文中。
+- Raw SQL reads run outside the Unit of Work transaction. If a use case needs data modified by the current aggregate operation, it should use the in-memory aggregate/domain state or an explicitly designed application flow—not route a read query into the write transaction. / Raw SQL 读取运行在 Unit of Work 事务之外。如果用例需要当前聚合操作刚修改的数据，应使用内存中的聚合/领域状态，或明确设计应用流程，而不是把查询塞进写事务。
 - MikroORM `em.transactional()` defaults to NESTED/savepoint propagation. The .NET implementation's existing-transaction behavior is closer to REQUIRED/join-existing. The Node adapter must choose and test propagation explicitly. / MikroORM `em.transactional()` 默认采用 NESTED/Savepoint；原 .NET 实现对已有事务的处理更接近 REQUIRED/加入现有事务。Node 适配器必须显式选择并测试传播语义。
 - Each concurrent request/job needs an isolated EntityManager context. After a failed unit of work, reload through a fresh context rather than reusing stale managed objects. / 每个并发请求/任务都需要独立 EntityManager；工作单元失败后，应通过新上下文重新加载，而不是复用旧托管对象。
 - A participant must not commit or dispose a transaction owned by its caller. / 事务参与者不得提交或释放调用方拥有的事务。
@@ -286,7 +302,7 @@ MikroORM is not approved as the framework's default provider until all checks pa
 3. **Constructor/private state / 构造函数与私有状态** — Verify constructors, private fields/accessors and hydration. MikroORM normally skips constructors for managed entities unless explicitly configured; this must be reconciled with Domain invariants. / 验证构造函数、私有字段/访问器和实体还原；MikroORM 默认加载托管实体时不调用构造函数，必须证明这与 Domain 不变量兼容。
 4. **Repository semantics / Repository 语义** — Repository is query-only; `findById` restores the complete aggregate state required by its invariants. New/dirty/deleted persistence intent is registered with Unit of Work and written only by Commit. / Repository 只负责查询；`findById` 恢复维护聚合不变量所需的完整状态。新增/修改/删除意图通过 Unit of Work 登记，并且只由 Commit 执行持久化。
 5. **UoW failure lifecycle / UoW 失败生命周期** — Verify flush, failed flush, rollback, context abandonment and reload. / 验证 Flush、Flush 失败、回滚、上下文放弃和重新加载。
-6. **Shared transaction / 共享事务** — In one transaction, perform an ORM write and raw SQL write; force a failure and prove both roll back. / 在同一事务中执行 ORM 和原生 SQL 写入；人为制造失败，证明两者都回滚。
+6. **Shared transaction / 共享事务** — Verify the Raw SQL Executor uses the ORM-managed pool through an independent query context, does not receive the Unit of Work EntityManager/transaction, returns plain read data, and exposes no mutation API. / 验证 Raw SQL Executor 通过独立查询上下文使用 ORM 管理的连接池，不接收 Unit of Work EntityManager/事务，返回普通读取数据，并且不暴露修改 API。
 7. **Propagation/ownership / 传播与所有权** — Verify REQUIRED/join-existing behavior and ensure inner components never commit outer transactions. / 验证 REQUIRED/加入现有事务，并确保内部组件不会提交外层事务。
 8. **Concurrent isolation / 并发隔离** — Prove parallel requests/jobs do not share identity maps or transaction state. / 证明并发请求/任务不会共享 Identity Map 或事务状态。
 9. **MySQL type behavior / MySQL 类型行为** — Verify BIGINT identifiers, decimal precision, nullability, indexes, unique constraints and relation delete behavior. / 验证 BIGINT、Decimal 精度、可空性、索引、唯一约束和关系删除行为。

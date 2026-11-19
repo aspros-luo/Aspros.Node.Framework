@@ -76,6 +76,7 @@ When `MYSQL_POC_DATABASE_URL` is absent, the integration suite is skipped; ordin
 
 - Generic, provider-independent Repository and Unit of Work adapters. The current adapters are Trade-specific POC implementations. / 通用、独立于 Provider 的 Repository 和 Unit of Work 适配器。目前实现仅是 Trade 专用 POC。
 - A framework-level read-only Raw SQL Executor. The intended design shares the ORM-managed connection pool but uses an independent query context and never joins a Unit of Work transaction. / 框架级只读 Raw SQL Executor。目标设计复用 ORM 管理的连接池，但使用独立查询上下文，绝不加入 Unit of Work 事务。
+- No concrete complex-read use case has required the executor yet; do not add a speculative abstraction. When a real query needs it, implement and test the read-only contract against an independent query context on the shared pool. / 目前尚无具体复杂查询用例要求该执行器；不要提前增加猜测性抽象。真实查询出现时，再基于共享连接池中的独立查询上下文实现并测试只读契约。
 - Production deployment orchestration and cross-process migration locking. The POC runner is intended for one explicitly serialized operator/deployment process only. / 生产部署编排和跨进程 Migration 互斥。当前 POC Runner 仅供单个、明确串行化的操作者/部署进程使用。
 - Runtime test evidence from the project owner's local MySQL environment. / 项目所有者本地 MySQL 环境的实际运行证据。
 
@@ -106,19 +107,6 @@ await scope.unitOfWork.commit(); // the only persistence/save boundary
 - Without an explicit transaction, MikroORM may still use its own short transaction for one `flush()`. This does not create a transaction spanning multiple business operations. / 未显式开启事务时，MikroORM 仍可能为单次 `flush()` 使用内部短事务；这不等于跨多个业务操作的显式事务。
 - A failed commit makes the scope unusable. Create a new scope and reload aggregates; database rollback cannot rewind in-memory Domain objects. / Commit 失败后 Scope 不可复用。应创建新 Scope 并重新加载聚合；数据库回滚无法还原内存中的 Domain 对象。
 
-## Provider Transaction-Bound Kysely Capability (Not the Target SQL Contract) / Provider 事务绑定 Kysely 能力（不是目标 SQL 契约）
-
-MikroORM 7.2 provides a first-class Kysely integration through `EntityManager.getKysely()`. When called on an EntityManager that owns an active transaction, Kysely queries use that transaction context. The existing integration test deliberately exercises this low-level provider capability by writing a test-only audit row and rolling it back. This is a provider behavior probe only; it does not define the framework's Raw SQL Executor contract or a business usage pattern.
-
-MikroORM 7.2 通过 `EntityManager.getKysely()` 提供一等 Kysely 集成。在拥有活动事务的 EntityManager 上调用时，Kysely 查询会使用同一个事务上下文。现有集成测试通过写入仅供测试的审计记录并回滚，刻意验证这一底层 Provider 能力。这只是 Provider 行为探针，不定义框架 Raw SQL Executor 契约，也不代表业务使用方式。
-
-The accepted framework direction is different: Raw SQL Executor is read-only, uses the same ORM-managed connection pool through an independent query context, and never receives the Unit of Work EntityManager or transaction. It returns plain DTO/read-model data and exposes no insert/update/delete or generic mutation API. The low-level ability to bind Kysely to an active transaction must not leak into this executor.
-
-已确认的框架方向与此不同：Raw SQL Executor 只读，通过独立查询上下文使用 ORM 管理的同一连接池，绝不接收 Unit of Work 的 EntityManager 或事务。它返回普通 DTO/Read Model，不暴露 insert/update/delete 或通用修改 API。Kysely 底层能够绑定活动事务的能力，不得泄漏到该执行器中。
-
-The provider probe still requires execution against the local disposable MySQL database. It is not evidence that a framework-level Raw SQL Executor has been implemented or runtime-verified.
-
-该 Provider 探针仍需在本地一次性 MySQL 数据库中实际执行。它不能证明框架级 Raw SQL Executor 已经实现或通过运行时验证。
 
 
 ## Transaction, Migration and Runtime Boundaries / 事务、迁移与运行时边界

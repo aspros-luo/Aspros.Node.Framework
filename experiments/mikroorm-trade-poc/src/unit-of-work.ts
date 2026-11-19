@@ -5,7 +5,7 @@ import { MikroOrmTradeRepository } from "./trade-repository.js";
 import { MikroOrmTradePersistenceWriter } from "./trade-persistence-writer.js";
 
 type ChangeKind = "new" | "dirty" | "deleted";
-type UnitOfWorkState = "active" | "committed" | "rolled-back" | "failed";
+type UnitOfWorkState = "active" | "starting-transaction" | "committing" | "rolling-back" | "committed" | "rolled-back" | "failed";
 
 interface RegisteredChange {
   readonly aggregate: Trade;
@@ -51,12 +51,29 @@ export class MikroOrmTradeUnitOfWork implements IUnitOfWork {
     if (this.em.isInTransaction()) {
       throw new Error("The EntityManager is already in a transaction not owned by this Unit of Work.");
     }
-    await this.em.begin();
-    this.ownsTransaction = true;
+
+    this.state = "starting-transaction";
+    try {
+      await this.em.begin();
+      this.ownsTransaction = true;
+      this.state = "active";
+    } catch (error) {
+      if (this.em.isInTransaction()) {
+        try {
+          await this.em.rollback();
+        } catch {
+          // Preserve the original transaction-start error.
+        }
+      }
+      this.state = "failed";
+      this.em.clear();
+      throw error;
+    }
   }
 
   public async commit(): Promise<void> {
     this.assertActive();
+    this.state = "committing";
     try {
       for (const change of this.changes.values()) {
         if (change.kind === "new") await this.writer.persistNew(change.aggregate);
@@ -91,6 +108,7 @@ export class MikroOrmTradeUnitOfWork implements IUnitOfWork {
 
   public async rollback(): Promise<void> {
     this.assertActive();
+    this.state = "rolling-back";
     try {
       if (this.ownsTransaction && this.em.isInTransaction()) {
         await this.em.rollback();

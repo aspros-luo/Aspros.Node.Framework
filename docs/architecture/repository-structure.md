@@ -25,8 +25,8 @@ Aspros.Node.Framework/
     │   ├── tests/
     │   └── package.json, tsconfig*.json, README.md
     ├── infrastructure/
-    │   ├── src/runtime/infrastructure-runtime.ts
-│   ├── src/cache/redis-cache.ts
+        │   ├── src/runtime/infrastructure-runtime.ts
+    │   ├── src/cache/redis-cache.ts
     │   ├── src/index.ts
     │   ├── tests/runtime/ and tests/cache/
     │   ├── examples/runtime-lifecycle.ts and redis-cache.ts

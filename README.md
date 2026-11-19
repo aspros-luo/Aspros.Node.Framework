@@ -28,7 +28,7 @@ A capability is implemented only when working code, tests, and verification evid
 ## Packages / 模块
 
 - `packages/domain` — domain kernel, repository and Unit of Work contracts. / 领域内核、Repository 和 Unit of Work 契约。
-- `packages/infrastructure` — technical adapters and runtime integration. A provider-neutral lifecycle coordinator is implemented; database, cache, messaging and other provider adapters are not yet included. / 已初始化数据库、缓存、消息、分析存储、服务通信和运维适配器的 package 边界；具体供应商实现尚未加入。
+- `packages/infrastructure` — technical adapters and runtime integration. A provider-neutral lifecycle coordinator is implemented; database, cache, messaging and other provider adapters are not yet included. / 技术适配器与运行时集成层。已实现与供应商无关的生命周期协调器；数据库、缓存、消息等 Provider 适配器尚未加入。
 - `packages/application` — planned use cases and orchestration, designed after required infrastructure capabilities are implemented and verified. / 计划中的应用用例与编排，待所需基础设施能力实现并验证后再设计。
 - `packages/runtime-node` — planned Node.js-specific integrations. / 计划中的 Node.js 专属集成。
 - `examples/` — later formal end-to-end microservice demos. / 后续正式端到端微服务 Demo。

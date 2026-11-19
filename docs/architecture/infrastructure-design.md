@@ -1,6 +1,6 @@
 # Infrastructure Design / Infrastructure 设计
 
-**Status / 状态：.NET persistence audit complete; MikroORM/MySQL POC implemented, runtime verification pending / .NET 持久化审计已完成；MikroORM/MySQL POC 已实现，待真实运行验证**
+**Status / 状态：.NET persistence audit complete; isolated MikroORM/MySQL POC and explicit runtime lifecycle coordinator implemented; runtime verification pending / .NET 持久化审计已完成；独立 MikroORM/MySQL POC 与显式运行时生命周期协调器已实现，待真实运行验证**
 
 This document is the single source of truth for Infrastructure scope, capability mapping, and provider decisions. It is a design baseline, not a claim that listed capabilities are implemented.
 
@@ -553,6 +553,29 @@ This is still an experiment, not a production migration framework. Production ad
 
 这仍然只是实验，不是生产 Migration 框架。正式采用前仍需补齐 Migration 生成与审核、部署串行化/锁、最小权限凭据、可观测性、备份/向前修复流程，并在一次性 MySQL 实例上实际测试。本环境尚未执行 Migration 或集成测试。
 
+## 10.7 Explicit Infrastructure Resource Lifecycle / 显式基础设施资源生命周期
+
+The first runtime foundation is implemented as `InfrastructureRuntime` in `@aspros/infrastructure`. It coordinates process-level resources that the application host explicitly registers; it is deliberately not a dependency-injection container.
+
+首个运行时基础能力已在 `@aspros/infrastructure` 中实现为 `InfrastructureRuntime`。它负责协调由应用宿主显式注册的进程级资源；有意不将其设计为依赖注入容器。
+
+**Contract and behavior / 契约与行为：**
+
+- The host creates concrete clients and registers their `name`, `start()`, and `stop()` operations. No module scanning, global service locator, constructor injection, or implicit registration is provided. / 宿主创建具体客户端，并注册其 `name`、`start()` 和 `stop()` 操作。不提供模块扫描、全局 Service Locator、构造函数注入或隐式注册。
+- Resources start sequentially in registration order and stop sequentially in reverse order. This makes dependencies explicit: register a dependency before the resource that uses it. / 资源按注册顺序依次启动，并按相反顺序依次停止。依赖关系因此保持显式：先注册依赖项，再注册使用它的资源。
+- Duplicate/blank names and registration after startup are rejected. Lifecycle transitions are one-way; a stopped runtime is not restarted or reused. / 拒绝重复/空名称和启动后注册。生命周期状态单向流转；停止后的 Runtime 不支持重启或复用。
+- If a resource fails to start, previously started resources are stopped in reverse order. A resource whose own `start()` rejects must clean up any partial initialization it performed before rejecting. / 某个资源启动失败时，之前已成功启动的资源按相反顺序停止。资源自身的 `start()` 如果在部分初始化后失败，必须在抛出异常前清理自身的部分状态。
+- Shutdown attempts every started resource even if one `stop()` fails. Failed cleanup resources remain eligible for a subsequent `stop()` retry; cleanup errors are reported as an `AggregateError`. / 即使某个 `stop()` 失败，关闭流程仍会尝试释放其他已启动资源。清理失败的资源会保留，以便后续再次调用 `stop()` 重试；清理错误通过 `AggregateError` 报告。
+- The coordinator does not install OS signal handlers, stop accepting HTTP traffic, drain requests/jobs, own configuration, or decide readiness. Those responsibilities belong to the service host and the capabilities that actually need them. / 协调器不安装操作系统信号处理器、不停止接收 HTTP 流量、不排空请求/后台任务、不拥有配置，也不决定 Readiness。这些职责属于服务宿主及真正需要它们的能力。
+
+**Why this boundary / 为什么这样划分：** this is lifecycle composition, not a general-purpose container. It is enough for a host to initialize a database client, cache client, and broker in a predictable order without introducing a second DI system or hiding ownership. A resource remains responsible for its own partial-start cleanup; the coordinator only owns resources whose `start()` completed successfully.
+
+**边界原因：** 这是生命周期组合，而不是通用容器。它足以让宿主按可预测顺序初始化数据库、缓存和消息客户端，无需再引入一套 DI 系统或隐藏资源所有权。资源自身负责清理未完成的启动；协调器只接管 `start()` 已成功完成的资源。
+
+**Verification status / 验证状态：** six focused Vitest cases cover ordering, reverse cleanup, startup rollback, continued shutdown after a failure, retry after cleanup failure, duplicate/late registration, and invalid state transitions. The tests and TypeScript checks have been added to the normal workspace commands, but they have not been executed in the current environment. Static review is not runtime acceptance.
+
+**验证状态：** 当前加入了针对顺序、逆序清理、启动回滚、关闭失败后继续清理、清理失败重试、重复/迟到注册和非法状态转换的 Vitest 测试，并已纳入工作区常规命令。但当前环境尚未实际执行测试和 TypeScript 检查；静态审查不等于运行验收。
+
 ## 11. Current Result and Next Step / 当前结论与下一步
 
 **Audited / 已审计：** tracked .NET Database, Repository, UnitOfWork, Dapper and migration design files. Transaction ownership and Domain/Infrastructure boundary risks are recorded above.
@@ -569,7 +592,7 @@ This is still an experiment, not a production migration framework. Production ad
 
 **New finding / 新发现：** direct ORM hydration of the current Domain classes is not the preferred approach. The POC will map separate MikroORM persistence records to and from Domain objects by calling public Domain constructors and legal state-transition methods. / 不建议让 ORM 直接还原当前 Domain 类。POC 将使用独立 MikroORM 持久化记录，通过调用 Domain 公共构造函数和合法状态转换方法完成双向映射。
 
-**Next / 下一步：** after the local Docker environment is ready, run typecheck/unit tests and verify the Register/Commit and Migration Runner POCs against the disposable MySQL database. Cover default non-transactional scope, explicit transaction rollback, new/dirty/deleted registration, fresh migration apply, a second no-op apply after success, read-only status against both an empty and initialized history table, and a simulated partial-DDL state that the runner must reject. Inspect the structured start/completion/failure logs. The accepted decision is lightweight Schema preflight only; full column/index/foreign-key drift validation is deferred until a concrete deployment or operational requirement justifies its maintenance cost. Do not create a second schema source merely for completeness. Keep database provisioning outside the framework and finalize deployment locking/runtime lifecycle only when a real deployment target requires it. / 本地 Docker 环境准备好后，执行类型检查、单元测试，并在一次性 MySQL 数据库中验证 Register/Commit 与 Migration Runner POC。验证默认不显式开启事务、显式事务回滚、新增/修改/删除登记、首次 Migration、成功后的第二次无操作执行、空历史表和已初始化历史表下的只读状态查询，以及 Runner 必须拒绝执行的模拟部分 DDL 残留状态。检查结构化开始/完成/失败日志。当前已确认仅采用轻量级 Schema 部署前置检查；完整的列/索引/外键漂移校验暂缓，只有具体部署或运维需求足以覆盖长期维护成本时才重新评估。部署锁和运行时生命周期也应在明确目标环境后确定。
+**Next / 下一步：** after the local Docker environment is ready, run typecheck/unit tests and verify the Register/Commit and Migration Runner POCs against the disposable MySQL database. Cover default non-transactional scope, explicit transaction rollback, new/dirty/deleted registration, fresh migration apply, a second no-op apply after success, read-only status against both an empty and initialized history table, and a simulated partial-DDL state that the runner must reject. Inspect the structured start/completion/failure logs. The accepted decision is lightweight Schema preflight only; full column/index/foreign-key drift validation is deferred until a concrete deployment or operational requirement justifies its maintenance cost. Do not create a second schema source merely for completeness. Keep database provisioning outside the framework. The generic resource lifecycle coordinator is now implemented; defer OS signal handling, request draining, deployment locking, and host-specific shutdown policy until a real service host and deployment target define their requirements. / 本地 Docker 环境准备好后，执行类型检查、单元测试，并在一次性 MySQL 数据库中验证 Register/Commit 与 Migration Runner POC。验证默认不显式开启事务、显式事务回滚、新增/修改/删除登记、首次 Migration、成功后的第二次无操作执行、空历史表和已初始化历史表下的只读状态查询，以及 Runner 必须拒绝执行的模拟部分 DDL 残留状态。检查结构化开始/完成/失败日志。当前已确认仅采用轻量级 Schema 部署前置检查；完整的列/索引/外键漂移校验暂缓，只有具体部署或运维需求足以覆盖长期维护成本时才重新评估。部署锁和运行时生命周期也应在明确目标环境后确定。
 
 Application remains deferred until required Infrastructure capabilities have working implementations and verification evidence.
 

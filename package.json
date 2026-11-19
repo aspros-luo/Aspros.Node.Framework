@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "pnpm --filter @aspros/domain --filter @aspros/infrastructure build",
-    "test": "pnpm --filter @aspros/domain test && pnpm --filter @aspros/mikroorm-trade-poc test",
+    "test": "pnpm --filter @aspros/domain test && pnpm --filter @aspros/infrastructure test && pnpm --filter @aspros/mikroorm-trade-poc test",
     "typecheck": "pnpm --filter @aspros/domain --filter @aspros/infrastructure --filter @aspros/mikroorm-trade-poc typecheck",
     "check": "pnpm typecheck && pnpm test && pnpm build",
     "poc:trade-mapping": "pnpm --filter @aspros/mikroorm-trade-poc exec vitest run tests/trade-mapper.test.ts",

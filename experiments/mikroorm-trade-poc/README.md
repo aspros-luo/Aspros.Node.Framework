@@ -103,6 +103,7 @@ await scope.unitOfWork.commit(); // the only persistence/save boundary
 
 - `registerNew`, `registerDirty`, and `registerDeleted` only record intent in memory; they do not issue database writes. / `registerNew`、`registerDirty` 和 `registerDeleted` 只在内存中登记意图，不执行数据库写入。
 - `commit` maps registered aggregates to persistence records and flushes them. / `commit` 将已登记聚合映射为持久化记录并执行 Flush。
+- `TradePersistenceScope` exposes only the Repository and Unit of Work. Its EntityManager/connection context remains private, preventing callers from bypassing aggregate registration or coupling unrelated query code to the write transaction. / `TradePersistenceScope` 只暴露 Repository 和 Unit of Work。EntityManager/连接上下文保持私有，避免调用方绕过聚合登记，也避免无关查询代码耦合到写事务。
 - Transactions are disabled by default. Call `beginTransaction()` when several operations must share an explicit transaction; the same Unit of Work owns its commit/rollback. / 事务默认关闭。多个操作需要共享显式事务时调用 `beginTransaction()`；同一个 Unit of Work 负责提交或回滚。
 - Without an explicit transaction, MikroORM may still use its own short transaction for one `flush()`. This does not create a transaction spanning multiple business operations. / 未显式开启事务时，MikroORM 仍可能为单次 `flush()` 使用内部短事务；这不等于跨多个业务操作的显式事务。
 - A failed commit makes the scope unusable. Create a new scope and reload aggregates; database rollback cannot rewind in-memory Domain objects. / Commit 失败后 Scope 不可复用。应创建新 Scope 并重新加载聚合；数据库回滚无法还原内存中的 Domain 对象。

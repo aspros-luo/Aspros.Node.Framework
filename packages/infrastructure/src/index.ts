@@ -8,3 +8,4 @@
  * 才会从这里导出公共 API。
  */
 export * from "./runtime/infrastructure-runtime.js";
+export * from "./cache/redis-cache.js";

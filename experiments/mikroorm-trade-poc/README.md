@@ -75,7 +75,7 @@ When `MYSQL_POC_DATABASE_URL` is absent, the integration suite is skipped; ordin
 ## Not Yet Implemented / 尚未实现
 
 - Generic, provider-independent Repository and Unit of Work adapters. The current adapters are Trade-specific POC implementations. / 通用、独立于 Provider 的 Repository 和 Unit of Work 适配器。目前实现仅是 Trade 专用 POC。
-- Explicit transaction propagation and raw SQL sharing. / 显式事务传播和原生 SQL 共享。
+- A framework-level read-only Raw SQL Executor. The intended design shares the ORM-managed connection pool but uses an independent query context and never joins a Unit of Work transaction. / 框架级只读 Raw SQL Executor。目标设计复用 ORM 管理的连接池，但使用独立查询上下文，绝不加入 Unit of Work 事务。
 - Production deployment orchestration and cross-process migration locking. The POC runner is intended for one explicitly serialized operator/deployment process only. / 生产部署编排和跨进程 Migration 互斥。当前 POC Runner 仅供单个、明确串行化的操作者/部署进程使用。
 - Runtime test evidence from the project owner's local MySQL environment. / 项目所有者本地 MySQL 环境的实际运行证据。
 
@@ -106,15 +106,19 @@ await scope.unitOfWork.commit(); // the only persistence/save boundary
 - Without an explicit transaction, MikroORM may still use its own short transaction for one `flush()`. This does not create a transaction spanning multiple business operations. / 未显式开启事务时，MikroORM 仍可能为单次 `flush()` 使用内部短事务；这不等于跨多个业务操作的显式事务。
 - A failed commit makes the scope unusable. Create a new scope and reload aggregates; database rollback cannot rewind in-memory Domain objects. / Commit 失败后 Scope 不可复用。应创建新 Scope 并重新加载聚合；数据库回滚无法还原内存中的 Domain 对象。
 
-## Same-Transaction SQL / 同事务原生 SQL
+## Provider Transaction-Bound Kysely Capability (Not the Target SQL Contract) / Provider 事务绑定 Kysely 能力（不是目标 SQL 契约）
 
-MikroORM 7.2 provides a first-class Kysely integration through `EntityManager.getKysely()`. When called on the EntityManager that owns an active transaction, Kysely queries use that transaction context. The integration test opens an explicit transaction, registers a new aggregate without committing it, writes a test-only audit row through Kysely, then rolls back and verifies the audit row is absent and the registered aggregate was never persisted.
+MikroORM 7.2 provides a first-class Kysely integration through `EntityManager.getKysely()`. When called on an EntityManager that owns an active transaction, Kysely queries use that transaction context. The existing integration test deliberately exercises this low-level provider capability by writing a test-only audit row and rolling it back. This is a provider behavior probe only; it does not define the framework's Raw SQL Executor contract or a business usage pattern.
 
-MikroORM 7.2 通过 `EntityManager.getKysely()` 提供一等 Kysely 集成。在拥有活动事务的 EntityManager 上调用时，Kysely 查询会使用同一个事务上下文。集成测试会显式开启事务，登记一个尚未 Commit 的新聚合，再通过 Kysely 写入仅供测试的审计记录，随后回滚并验证审计记录不存在，且登记的聚合从未被持久化。
+MikroORM 7.2 通过 `EntityManager.getKysely()` 提供一等 Kysely 集成。在拥有活动事务的 EntityManager 上调用时，Kysely 查询会使用同一个事务上下文。现有集成测试通过写入仅供测试的审计记录并回滚，刻意验证这一底层 Provider 能力。这只是 Provider 行为探针，不定义框架 Raw SQL Executor 契约，也不代表业务使用方式。
 
-This is the current candidate for Dapper-like SQL access in the Node stack; it is not yet a published framework-level SQL executor abstraction. The behavior still requires execution against the local disposable MySQL database.
+The accepted framework direction is different: Raw SQL Executor is read-only, uses the same ORM-managed connection pool through an independent query context, and never receives the Unit of Work EntityManager or transaction. It returns plain DTO/read-model data and exposes no insert/update/delete or generic mutation API. The low-level ability to bind Kysely to an active transaction must not leak into this executor.
 
-这是当前 Node 技术栈中对应 Dapper 类 SQL 访问的候选方案；它尚不是已发布的框架级 SQL Executor 抽象。该行为仍需在本地一次性 MySQL 数据库中实际执行验证。
+已确认的框架方向与此不同：Raw SQL Executor 只读，通过独立查询上下文使用 ORM 管理的同一连接池，绝不接收 Unit of Work 的 EntityManager 或事务。它返回普通 DTO/Read Model，不暴露 insert/update/delete 或通用修改 API。Kysely 底层能够绑定活动事务的能力，不得泄漏到该执行器中。
+
+The provider probe still requires execution against the local disposable MySQL database. It is not evidence that a framework-level Raw SQL Executor has been implemented or runtime-verified.
+
+该 Provider 探针仍需在本地一次性 MySQL 数据库中实际执行。它不能证明框架级 Raw SQL Executor 已经实现或通过运行时验证。
 
 
 ## Transaction, Migration and Runtime Boundaries / 事务、迁移与运行时边界
@@ -151,8 +155,8 @@ The versioned `Migration20261117000100_CreateTradePocSchema` class is the single
 
 ### ORM and connection lifecycle / ORM 与连接生命周期
 
-- Initialize one MikroORM instance per process/database configuration during application bootstrap. It owns the pool and metadata. / 每个进程/数据库配置在应用启动时初始化一个 MikroORM 实例，由它拥有连接池和元数据。
-- Fork an EntityManager/identity map per request or background job. Never share one mutable EntityManager across concurrent requests/jobs. / 每个请求或后台任务 Fork 独立 EntityManager/Identity Map。绝不在并发请求/任务之间共享同一个可变 EntityManager。
+- Initialize one MikroORM instance per process/database configuration during application bootstrap. It owns the pool and metadata. ORM and the future Raw SQL Executor share this pool; do not create another pool merely for a second query API. / 每个进程/数据库配置在应用启动时初始化一个 MikroORM 实例，由它拥有连接池和元数据。ORM 与未来的 Raw SQL Executor 共用此连接池；不能仅仅因为增加第二种查询 API 就创建另一套连接池。
+- Fork an EntityManager/identity map per request or background job. Never share one mutable EntityManager across concurrent requests/jobs. The Raw SQL Executor uses an independent query context and must not receive the Unit of Work EntityManager or transaction. / 每个请求或后台任务 Fork 独立 EntityManager/Identity Map。绝不在并发请求/任务之间共享同一个可变 EntityManager。Raw SQL Executor 使用独立查询上下文，不得接收 Unit of Work 的 EntityManager 或事务。
 - A Unit of Work scope owns its forked context and any transaction it explicitly opens, but does not own or close the process-wide connection pool. / Unit of Work Scope 拥有自己的 Fork 上下文以及显式开启的事务，但不拥有也不关闭进程级连接池。
 - On graceful shutdown: stop accepting new work, drain active requests/jobs, ensure active transactions are committed or rolled back, then close the ORM/pool once. Forced close is an emergency path, not routine request cleanup. / 优雅关闭时：停止接收新任务，等待活动请求/后台任务排空，确保活动事务已提交或回滚，然后统一关闭 ORM/连接池。强制关闭只用于紧急情况，不是每次请求清理的常规方式。
 - Readiness checks may use the ORM connection health API; liveness should not fail solely because a transient database connection check failed. Retry whole operations only when idempotency and error classification make that safe, using a fresh EntityManager after a failed transaction. / Readiness 检查可以使用 ORM 连接健康 API；Liveness 不应仅因瞬时数据库连接检查失败而判定进程死亡。只有在幂等性和错误分类允许时才重试整个操作，并在事务失败后使用新的 EntityManager。

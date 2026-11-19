@@ -36,9 +36,9 @@ Aspros.Node.Framework/
     └── runtime-node/      # platform-specific runtime integration / 平台专属运行时集成
 ~~~
 
-The Infrastructure package currently contains only its package entry point and workspace configuration. Capability folders are added as each design is approved; empty directories and speculative public APIs are intentionally avoided.
+Infrastructure now contains a provider-neutral lifecycle coordinator under `src/runtime`, with focused tests and an example. Other capability folders are added only when their designs are approved; empty directories and speculative public APIs remain intentionally avoided.
 
-Infrastructure package 当前仅包含 package 入口和工作区配置。每项能力的设计获准后再增加对应目录；有意避免创建空目录和猜测性公共 API。
+Infrastructure 现已在 `src/runtime` 中提供与供应商无关的生命周期协调器，并配套针对性测试和示例。其他能力目录仍只在设计获准后创建；继续避免空目录和猜测性公共 API。
 
 ## 2. Domain Directory Responsibilities / Domain 目录职责
 

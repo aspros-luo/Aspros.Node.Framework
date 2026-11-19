@@ -44,6 +44,7 @@ describe("RedisCache", () => {
   it("validates its connection options and installs the host error handler", () => {
     const onError = vi.fn();
     expect(() => new RedisCache({ url: "http://localhost:6379", onError })).toThrow(/redis:\/\//i);
+    expect(() => new RedisCache({ url: "redis:///0", onError })).toThrow(/Redis host/);
     expect(() => new RedisCache({ url: "redis://localhost:6379", connectTimeoutMs: 0, onError }))
       .toThrow(/connectTimeoutMs/);
     expect(() => new RedisCache({ url: "redis://localhost:6379", startupTimeoutMs: 0, onError }))

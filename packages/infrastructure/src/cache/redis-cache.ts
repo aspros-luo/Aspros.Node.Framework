@@ -8,6 +8,8 @@ export interface RedisCacheOptions {
   readonly keyPrefix?: string;
   /** Socket connection timeout in milliseconds. / Socket 连接超时时间（毫秒）。 */
   readonly connectTimeoutMs?: number;
+  /** Maximum time allowed for initial startup, including reconnect attempts. Defaults to 10000 ms. / 初次启动允许的最长时间（包含重连尝试），默认 10000 毫秒。 */
+  readonly startupTimeoutMs?: number;
   /** Whether commands issued while disconnected are rejected instead of queued. Defaults to true. / 断线期间是否拒绝命令而非排队，默认 true。 */
   readonly disableOfflineQueue?: boolean;
   /** The host owns logging and decides how Redis client errors are reported. / 日志由宿主负责，宿主决定如何报告 Redis 客户端错误。 */
@@ -35,12 +37,14 @@ export class RedisCache implements InfrastructureResource {
 
   private readonly client: ReturnType<typeof createClient>;
   private readonly keyPrefix: string;
+  private readonly startupTimeoutMs: number;
   private state: "new" | "started" | "stopped" = "new";
 
   public constructor(options: RedisCacheOptions) {
     assertRedisCacheOptions(options);
 
     this.keyPrefix = options.keyPrefix ?? "";
+    this.startupTimeoutMs = options.startupTimeoutMs ?? 10_000;
     this.client = createClient({
       url: options.url,
       ...(options.connectTimeoutMs === undefined
@@ -58,15 +62,26 @@ export class RedisCache implements InfrastructureResource {
       throw new Error(`Redis cache cannot start from state "${this.state}".`);
     }
 
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
-      await this.client.connect();
+      await Promise.race([
+        this.client.connect(),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error(`Redis cache startup exceeded ${this.startupTimeoutMs} ms.`)),
+            this.startupTimeoutMs,
+          );
+        }),
+      ]);
       this.state = "started";
     } catch (error) {
-      if (this.client.isOpen) {
-        this.client.destroy();
-      }
+      // destroy() also releases client resources after a terminal connection failure.
+      // 即使连接最终失败，也通过 destroy() 释放客户端资源。
+      this.client.destroy();
       this.state = "stopped";
       throw error;
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout);
     }
   }
 
@@ -76,6 +91,11 @@ export class RedisCache implements InfrastructureResource {
 
     if (this.client.isOpen) {
       await this.client.close();
+    } else {
+      // A client that exhausted its reconnect strategy may no longer be open,
+      // but still needs destroy() to release its remaining resources.
+      // 重连策略终止后客户端可能已不再 open，但仍需 destroy() 释放剩余资源。
+      this.client.destroy();
     }
     this.state = "stopped";
   }
@@ -159,6 +179,10 @@ function assertRedisCacheOptions(options: RedisCacheOptions): void {
   if (options.connectTimeoutMs !== undefined &&
       (!Number.isInteger(options.connectTimeoutMs) || options.connectTimeoutMs <= 0)) {
     throw new TypeError("Redis cache connectTimeoutMs must be a positive integer.");
+  }
+  if (options.startupTimeoutMs !== undefined &&
+      (!Number.isInteger(options.startupTimeoutMs) || options.startupTimeoutMs <= 0)) {
+    throw new TypeError("Redis cache startupTimeoutMs must be a positive integer.");
   }
 }
 

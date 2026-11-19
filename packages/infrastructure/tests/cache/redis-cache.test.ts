@@ -86,6 +86,25 @@ describe("RedisCache", () => {
     }
   });
 
+  it("rolls back previously started resources when Redis startup fails", async () => {
+    const stopped: string[] = [];
+    const cache = new RedisCache({ url: "redis://localhost:6379", onError: vi.fn() });
+    client.connect.mockRejectedValueOnce(new Error("Redis unavailable"));
+
+    const runtime = new InfrastructureRuntime()
+      .register({
+        name: "before-redis",
+        start: () => undefined,
+        stop: () => { stopped.push("before-redis"); },
+      })
+      .register(cache);
+
+    await expect(runtime.start()).rejects.toThrow(/Redis unavailable/);
+    expect(stopped).toEqual(["before-redis"]);
+    expect(runtime.state).toBe("stopped");
+    expect(client.destroy).toHaveBeenCalledOnce();
+  });
+
   it("cleans up a partially opened client when startup fails", async () => {
     const startupError = new Error("connection failed");
     client.connect.mockImplementationOnce(async () => {

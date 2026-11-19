@@ -59,6 +59,10 @@ export class InfrastructureRuntime {
       throw new Error("Infrastructure resource name must not be empty.");
     }
 
+    if (name !== resource.name) {
+      throw new Error("Infrastructure resource name must not contain surrounding whitespace.");
+    }
+
     if (this.registeredNames.has(name)) {
       throw new Error(`Infrastructure resource "${name}" is already registered.`);
     }
